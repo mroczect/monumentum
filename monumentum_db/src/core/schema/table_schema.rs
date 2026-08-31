@@ -1,6 +1,7 @@
-use crate::core::schema::column::ColumnDef;
+use crate::core::schema::column::{ColumnDef, DataType};
 use crate::core::value::Value;
 use crate::error::DbError;
+use std::collections::HashSet;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TableSchema {
@@ -9,12 +10,33 @@ pub struct TableSchema {
 }
 
 impl TableSchema {
-    #[must_use]
-    pub fn new(name: impl Into<String>, columns: Vec<ColumnDef>) -> Self {
-        Self {
-            name: name.into(),
-            columns,
+    pub fn try_new(name: impl Into<String>, columns: Vec<ColumnDef>) -> Result<Self, DbError> {
+        let name = name.into();
+        if name.is_empty() {
+            return Err(DbError::invalid_operation("table name cannot be empty"));
         }
+
+        if columns.is_empty() {
+            return Err(DbError::invalid_operation(
+                "table must have at least one column",
+            ));
+        }
+
+        let mut seen = HashSet::new();
+        for col in &columns {
+            let col_name = col.name();
+            if col_name.is_empty() {
+                return Err(DbError::invalid_operation("column name cannot be empty"));
+            }
+            if !seen.insert(col_name.to_lowercase()) {
+                return Err(DbError::invalid_operation(format!(
+                    "duplicate column name '{}'",
+                    col_name
+                )));
+            }
+        }
+
+        Ok(Self { name, columns })
     }
 
     #[must_use]
@@ -49,12 +71,22 @@ impl TableSchema {
         }
 
         for (col, val) in self.columns.iter().zip(values) {
+            if val.is_null() {
+                if !col.is_nullable() {
+                    return Err(DbError::invalid_operation(format!(
+                        "column '{}' is not nullable",
+                        col.name()
+                    )));
+                }
+                continue;
+            }
+
             let type_ok = match col.data_type() {
-                crate::core::schema::column::DataType::Null => true,
-                crate::core::schema::column::DataType::Integer => val.is_integer(),
-                crate::core::schema::column::DataType::Float => val.is_float(),
-                crate::core::schema::column::DataType::Text => val.is_text(),
-                crate::core::schema::column::DataType::Blob => val.is_blob(),
+                DataType::Null => false,
+                DataType::Integer => val.is_integer(),
+                DataType::Float => val.is_float(),
+                DataType::Text => val.is_text(),
+                DataType::Blob => val.is_blob(),
             };
             if !type_ok {
                 return Err(DbError::type_mismatch(format!(
@@ -62,12 +94,6 @@ impl TableSchema {
                     col.name(),
                     col.data_type(),
                     val.type_name()
-                )));
-            }
-            if !col.is_nullable() && val.is_null() {
-                return Err(DbError::invalid_operation(format!(
-                    "column '{}' is not nullable",
-                    col.name()
                 )));
             }
         }
