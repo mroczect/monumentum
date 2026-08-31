@@ -139,7 +139,7 @@ fn display() {
     let f = Float::try_new(-2.5).unwrap();
     assert_eq!(format!("{f}"), "-2.5");
     let f = Float::try_new(0.0).unwrap();
-    assert_eq!(format!("{f}"), "0");
+    assert_eq!(format!("{f}"), "0.0");
 }
 
 #[test]
