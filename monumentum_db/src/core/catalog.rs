@@ -3,11 +3,10 @@ use crate::core::table::Table;
 use crate::error::DbError;
 use std::collections::BTreeMap;
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct Catalog {
     tables: BTreeMap<String, Table>,
 }
-
 impl Catalog {
     #[must_use]
     pub fn new() -> Self {
