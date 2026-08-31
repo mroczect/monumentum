@@ -1,5 +1,6 @@
 use crate::core::row::Row;
 use crate::core::schema::table_schema::TableSchema;
+use crate::core::value::Value;
 use crate::error::DbError;
 
 #[derive(Debug, Clone)]
@@ -29,6 +30,24 @@ impl Table {
 
     pub fn insert(&mut self, row: Row) -> Result<(), DbError> {
         self.schema.validate_values(row.values())?;
+
+        let columns = self.schema.columns();
+        for (idx, col) in columns.iter().enumerate() {
+            if col.is_primary_key() || col.is_unique() {
+                let new_val = row.get(idx).unwrap_or(&Value::Null);
+                if self
+                    .rows
+                    .iter()
+                    .any(|r| r.get(idx).is_some_and(|v| v == new_val))
+                {
+                    return Err(DbError::invalid_operation(format!(
+                        "duplicate value for column '{}'",
+                        col.name()
+                    )));
+                }
+            }
+        }
+
         self.rows.push(row);
         Ok(())
     }
