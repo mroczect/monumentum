@@ -66,4 +66,8 @@ impl Table {
     pub fn get(&self, index: usize) -> Option<&Row> {
         self.rows.get(index)
     }
+
+    pub fn replace_rows(&mut self, rows: Vec<Row>) {
+        self.rows = rows;
+    }
 }
