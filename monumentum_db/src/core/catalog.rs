@@ -16,6 +16,9 @@ impl Catalog {
 
     pub fn create_table(&mut self, schema: TableSchema) -> Result<(), DbError> {
         let name = schema.name().to_string();
+        if name.is_empty() {
+            return Err(DbError::invalid_operation("table name cannot be empty"));
+        }
         if self.tables.contains_key(&name) {
             return Err(DbError::invalid_operation(format!(
                 "table '{name}' already exists"
@@ -42,8 +45,8 @@ impl Catalog {
         self.tables.get_mut(name)
     }
 
-    pub fn tables(&self) -> impl Iterator<Item = (&String, &Table)> {
-        self.tables.iter()
+    pub fn tables(&self) -> impl Iterator<Item = (&str, &Table)> {
+        self.tables.iter().map(|(k, v)| (k.as_str(), v))
     }
 
     #[must_use]
