@@ -1,9 +1,15 @@
 [package]
 name = "monumentum_query"
 version = "0.1.0"
-edition = "2024"
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+keywords.workspace = true
+categories.workspace = true
+rust-version.workspace = true
+description = "SQL-like query parser for Monumentum."
 
 [dependencies]
-
-[lints]
-workspace = true

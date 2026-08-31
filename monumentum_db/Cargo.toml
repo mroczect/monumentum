@@ -1,9 +1,15 @@
 [package]
 name = "monumentum_db"
 version = "0.1.0"
-edition = "2024"
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+keywords.workspace = true
+categories.workspace = true
+rust-version.workspace = true
+description = "Core database engine for Monumentum, built with Rust std only."
 
 [dependencies]
-
-[lints]
-workspace = true
