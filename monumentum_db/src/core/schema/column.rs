@@ -76,10 +76,17 @@ impl ColumnDef {
 
     pub fn set_nullable(&mut self, value: bool) {
         self.nullable = value;
+        if value {
+            self.primary_key = false;
+        }
     }
 
     pub fn set_primary_key(&mut self, value: bool) {
         self.primary_key = value;
+        if value {
+            self.nullable = false;
+            self.unique = true;
+        }
     }
 
     pub fn set_unique(&mut self, value: bool) {

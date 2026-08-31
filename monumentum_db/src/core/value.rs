@@ -119,7 +119,7 @@ impl fmt::Display for Value {
         match self {
             Self::Null => write!(f, "NULL"),
             Self::Integer(v) => write!(f, "{v}"),
-            Self::Float(v) => write!(f, "{}", v.as_f64()),
+            Self::Float(v) => write!(f, "{:?}", v.as_f64()),
             Self::Text(v) => {
                 write!(f, "'{}'", v.as_str().replace('\'', "''"))
             }
