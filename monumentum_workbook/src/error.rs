@@ -37,6 +37,7 @@ pub enum WorkbookError {
     UnsupportedInlineArrayContent,
     ExternalContentDisabled,
     Db(String),
+    Formula(String),
     FileExists,
     InvalidExtension,
 }
@@ -83,6 +84,7 @@ impl fmt::Display for WorkbookError {
             }
             Self::ExternalContentDisabled => write!(f, "Err:540: external content disabled"),
             Self::Db(msg) => write!(f, "database error: {msg}"),
+            Self::Formula(msg) => write!(f, "formula error: {msg}"),
             Self::FileExists => write!(f, "file already exists"),
             Self::InvalidExtension => write!(f, "invalid file extension, expected .monumentum"),
         }
@@ -94,5 +96,11 @@ impl Error for WorkbookError {}
 impl From<DbError> for WorkbookError {
     fn from(e: DbError) -> Self {
         Self::Db(e.to_string())
+    }
+}
+
+impl From<monumentum_query::formula::FormulaError> for WorkbookError {
+    fn from(e: monumentum_query::formula::FormulaError) -> Self {
+        Self::Formula(e.to_string())
     }
 }
