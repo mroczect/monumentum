@@ -10,6 +10,7 @@ pub enum Value {
     Float(Float),
     Text(Text),
     Blob(Blob),
+    Boolean(bool),
 }
 
 impl Value {
@@ -39,6 +40,11 @@ impl Value {
     }
 
     #[must_use]
+    pub fn is_boolean(&self) -> bool {
+        matches!(self, Self::Boolean(_))
+    }
+
+    #[must_use]
     pub fn type_name(&self) -> &'static str {
         match self {
             Self::Null => "null",
@@ -46,6 +52,7 @@ impl Value {
             Self::Float(_) => "float",
             Self::Text(_) => "text",
             Self::Blob(_) => "blob",
+            Self::Boolean(_) => "boolean",
         }
     }
 
@@ -82,6 +89,14 @@ impl Value {
     }
 
     #[must_use]
+    pub fn as_boolean(&self) -> Option<bool> {
+        match self {
+            Self::Boolean(b) => Some(*b),
+            _ => None,
+        }
+    }
+
+    #[must_use]
     pub fn into_integer(self) -> Option<Integer> {
         match self {
             Self::Integer(v) => Some(v),
@@ -112,6 +127,14 @@ impl Value {
             _ => None,
         }
     }
+
+    #[must_use]
+    pub fn into_boolean(self) -> Option<bool> {
+        match self {
+            Self::Boolean(b) => Some(b),
+            _ => None,
+        }
+    }
 }
 
 impl fmt::Display for Value {
@@ -124,6 +147,7 @@ impl fmt::Display for Value {
                 write!(f, "'{}'", v.as_str().replace('\'', "''"))
             }
             Self::Blob(v) => write!(f, "{v}"),
+            Self::Boolean(b) => write!(f, "{b}"),
         }
     }
 }
@@ -155,6 +179,12 @@ impl From<Text> for Value {
 impl From<Blob> for Value {
     fn from(v: Blob) -> Self {
         Self::Blob(v)
+    }
+}
+
+impl From<bool> for Value {
+    fn from(v: bool) -> Self {
+        Self::Boolean(v)
     }
 }
 
