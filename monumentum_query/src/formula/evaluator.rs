@@ -2,11 +2,15 @@ use crate::coordinates::parse_cell_ref;
 use crate::formula::ast::{BinaryOp, Expr, UnaryOp};
 use crate::formula::context::FormulaContext;
 use crate::formula::error::FormulaError;
-use crate::formula::functions::call_function;
+use crate::formula::functions::FunctionRegistry;
 use monumentum_db::core::value::Value;
 use monumentum_db::types::{Float, Integer, Text};
 
-pub fn evaluate(expr: &Expr, ctx: &dyn FormulaContext) -> Result<Value, FormulaError> {
+pub fn evaluate(
+    expr: &Expr,
+    ctx: &dyn FormulaContext,
+    registry: &FunctionRegistry,
+) -> Result<Value, FormulaError> {
     match expr {
         Expr::Literal(v) => Ok(v.clone()),
         Expr::CellRef(s) => {
@@ -18,12 +22,12 @@ pub fn evaluate(expr: &Expr, ctx: &dyn FormulaContext) -> Result<Value, FormulaE
             "range not allowed in scalar context".to_string(),
         )),
         Expr::UnaryOp(op, operand) => {
-            let val = evaluate(operand, ctx)?;
+            let val = evaluate(operand, ctx, registry)?;
             apply_unary(*op, val)
         }
         Expr::BinaryOp(op, left, right) => {
-            let l = evaluate(left, ctx)?;
-            let r = evaluate(right, ctx)?;
+            let l = evaluate(left, ctx, registry)?;
+            let r = evaluate(right, ctx, registry)?;
             apply_binary(*op, l, r)
         }
         Expr::FunctionCall(name, args) => {
@@ -37,12 +41,12 @@ pub fn evaluate(expr: &Expr, ctx: &dyn FormulaContext) -> Result<Value, FormulaE
                         }
                     }
                     _ => {
-                        let v = evaluate(arg, ctx)?;
+                        let v = evaluate(arg, ctx, registry)?;
                         arg_values.push(v);
                     }
                 }
             }
-            call_function(name, &arg_values)
+            registry.call(name, &arg_values)
         }
     }
 }
