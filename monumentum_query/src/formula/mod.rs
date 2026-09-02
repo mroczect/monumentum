@@ -10,5 +10,6 @@ pub use ast::*;
 pub use context::FormulaContext;
 pub use error::FormulaError;
 pub use evaluator::evaluate;
+pub use functions::{FunctionImpl, FunctionRegistry};
 pub use lexer::*;
 pub use parser::parse;

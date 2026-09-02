@@ -8,6 +8,11 @@ pub struct CellRange {
 
 impl CellRange {
     pub fn try_new(start: CellRef, end: CellRef) -> Result<Self, CoordinateError> {
+        if !start.is_valid() || !end.is_valid() {
+            return Err(CoordinateError::InvalidRange(
+                "cell out of bounds".to_string(),
+            ));
+        }
         if start.sheet != end.sheet {
             return Err(CoordinateError::InvalidRange(
                 "sheet mismatch in range".to_string(),
@@ -22,6 +27,7 @@ impl CellRange {
     }
 
     pub fn new_unchecked(start: CellRef, end: CellRef) -> Self {
+        debug_assert!(start.is_valid() && end.is_valid());
         let (start, end) = if start.row > end.row || (start.row == end.row && start.col > end.col) {
             (end, start)
         } else {
@@ -49,7 +55,9 @@ impl CellRange {
     }
 
     pub fn is_valid(&self) -> bool {
-        self.start.row <= self.end.row
+        self.start.is_valid()
+            && self.end.is_valid()
+            && self.start.row <= self.end.row
             && (self.start.row < self.end.row || self.start.col <= self.end.col)
             && self.start.sheet == self.end.sheet
     }

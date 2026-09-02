@@ -15,3 +15,7 @@ description = "SQL-like query parser for Monumentum."
 
 [dependencies]
 monumentum_db = {path = "../monumentum_db", version = "0.1.0" }
+
+[dev-dependencies]
+proptest = "1.4"
+pretty_assertions = "1.4"

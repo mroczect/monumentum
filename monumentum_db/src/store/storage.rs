@@ -100,6 +100,24 @@ impl FileStorage {
         Ok(())
     }
 
+    pub fn reload_from_disk(&mut self) -> Result<Catalog, DbError> {
+        let data = std::fs::read(&self.data_path)?;
+        let (seq, cat) = decode_snapshot(&data)?;
+        let records = self.wal.read_all()?;
+        let mut current_seq = seq;
+        let mut catalog = cat;
+        for record in records {
+            let (seq, cat) = decode_snapshot(&record)?;
+            if seq > current_seq {
+                current_seq = seq;
+                catalog = cat;
+            }
+        }
+        self.catalog = catalog.clone();
+        self.current_seq = current_seq;
+        Ok(catalog)
+    }
+
     pub fn close(mut self) -> Result<(), DbError> {
         self.wal.unlock()?;
         Ok(())

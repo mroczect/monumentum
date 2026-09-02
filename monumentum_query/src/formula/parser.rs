@@ -4,8 +4,14 @@ use crate::formula::error::FormulaError;
 use crate::formula::lexer::Token;
 use monumentum_db::core::value::Value;
 
+const MAX_PARSE_DEPTH: usize = 128;
+
 pub fn parse(tokens: &[Token]) -> Result<Expr, FormulaError> {
-    let mut parser = Parser { tokens, pos: 0 };
+    let mut parser = Parser {
+        tokens,
+        pos: 0,
+        depth: 0,
+    };
     let expr = parser.parse_expr()?;
     if parser.peek().is_some() {
         return Err(FormulaError::Parse(
@@ -18,6 +24,7 @@ pub fn parse(tokens: &[Token]) -> Result<Expr, FormulaError> {
 struct Parser<'a> {
     tokens: &'a [Token],
     pos: usize,
+    depth: usize,
 }
 
 impl<'a> Parser<'a> {
@@ -44,8 +51,25 @@ impl<'a> Parser<'a> {
         }
     }
 
+    fn enter_depth(&mut self) -> Result<(), FormulaError> {
+        self.depth += 1;
+        if self.depth > MAX_PARSE_DEPTH {
+            return Err(FormulaError::Parse(
+                "expression too deeply nested".to_string(),
+            ));
+        }
+        Ok(())
+    }
+
+    fn exit_depth(&mut self) {
+        self.depth -= 1;
+    }
+
     fn parse_expr(&mut self) -> Result<Expr, FormulaError> {
-        self.parse_or()
+        self.enter_depth()?;
+        let result = self.parse_or();
+        self.exit_depth();
+        result
     }
 
     fn parse_or(&mut self) -> Result<Expr, FormulaError> {
@@ -184,7 +208,8 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_unary(&mut self) -> Result<Expr, FormulaError> {
-        match self.peek() {
+        self.enter_depth()?;
+        let result = match self.peek() {
             Some(Token::Minus) => {
                 self.next();
                 let operand = self.parse_unary()?;
@@ -196,7 +221,9 @@ impl<'a> Parser<'a> {
                 Ok(Expr::UnaryOp(UnaryOp::Not, Box::new(operand)))
             }
             _ => self.parse_primary(),
-        }
+        };
+        self.exit_depth();
+        result
     }
 
     fn parse_primary(&mut self) -> Result<Expr, FormulaError> {

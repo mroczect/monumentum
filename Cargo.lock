@@ -103,10 +103,20 @@ name = "monumentum_db"
 version = "0.1.0"
 
 [[package]]
+name = "monumentum_functions"
+version = "0.1.0"
+dependencies = [
+ "monumentum_db",
+ "monumentum_query",
+]
+
+[[package]]
 name = "monumentum_query"
 version = "0.1.0"
 dependencies = [
  "monumentum_db",
+ "pretty_assertions",
+ "proptest",
 ]
 
 [[package]]
@@ -114,6 +124,7 @@ name = "monumentum_workbook"
 version = "0.1.0"
 dependencies = [
  "monumentum_db",
+ "monumentum_query",
  "pretty_assertions",
  "proptest",
  "tempfile",

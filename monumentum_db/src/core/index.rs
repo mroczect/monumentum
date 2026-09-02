@@ -27,6 +27,7 @@ impl IndexKey {
             Value::Text(t) => Some(Self::Text(t.as_str().to_string())),
             Value::Blob(b) => Some(Self::Blob(b.as_slice().to_vec())),
             Value::Boolean(_) => None,
+            Value::Formula(_) => None,
         }
     }
 }

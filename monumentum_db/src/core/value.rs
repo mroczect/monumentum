@@ -11,6 +11,7 @@ pub enum Value {
     Text(Text),
     Blob(Blob),
     Boolean(bool),
+    Formula(String),
 }
 
 impl Value {
@@ -45,6 +46,11 @@ impl Value {
     }
 
     #[must_use]
+    pub fn is_formula(&self) -> bool {
+        matches!(self, Self::Formula(_))
+    }
+
+    #[must_use]
     pub fn type_name(&self) -> &'static str {
         match self {
             Self::Null => "null",
@@ -53,6 +59,7 @@ impl Value {
             Self::Text(_) => "text",
             Self::Blob(_) => "blob",
             Self::Boolean(_) => "boolean",
+            Self::Formula(_) => "formula",
         }
     }
 
@@ -97,6 +104,14 @@ impl Value {
     }
 
     #[must_use]
+    pub fn as_formula(&self) -> Option<&str> {
+        match self {
+            Self::Formula(s) => Some(s.as_str()),
+            _ => None,
+        }
+    }
+
+    #[must_use]
     pub fn into_integer(self) -> Option<Integer> {
         match self {
             Self::Integer(v) => Some(v),
@@ -135,6 +150,14 @@ impl Value {
             _ => None,
         }
     }
+
+    #[must_use]
+    pub fn into_formula(self) -> Option<String> {
+        match self {
+            Self::Formula(s) => Some(s),
+            _ => None,
+        }
+    }
 }
 
 impl fmt::Display for Value {
@@ -148,6 +171,7 @@ impl fmt::Display for Value {
             }
             Self::Blob(v) => write!(f, "{v}"),
             Self::Boolean(b) => write!(f, "{b}"),
+            Self::Formula(s) => write!(f, "={s}"),
         }
     }
 }

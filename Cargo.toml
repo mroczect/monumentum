@@ -1,5 +1,5 @@
 [workspace]
-members = ["monumentum_db", "monumentum_query", "monumentum_workbook"]
+members = ["monumentum_db", "monumentum_functions", "monumentum_query", "monumentum_workbook"]
 resolver = "3"
 
 [workspace.lints.clippy]

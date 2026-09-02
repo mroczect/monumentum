@@ -1,5 +1,7 @@
 use crate::formula::error::FormulaError;
 
+const MAX_FORMULA_LENGTH: usize = 64 * 1024;
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Token {
     Integer(i64),
@@ -30,6 +32,10 @@ pub enum Token {
 }
 
 pub fn tokenize(input: &str) -> Result<Vec<Token>, FormulaError> {
+    if input.len() > MAX_FORMULA_LENGTH {
+        return Err(FormulaError::Parse("formula too long".to_string()));
+    }
+
     let mut tokens = Vec::new();
     let mut chars = input.chars().peekable();
 

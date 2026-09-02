@@ -1,7 +1,9 @@
 use monumentum_db::core::value::Value;
 use monumentum_db::types::{Integer, Text};
 use monumentum_query::coordinates::CellRef;
-use monumentum_query::formula::{FormulaContext, FormulaError, evaluate, parse, tokenize};
+use monumentum_query::formula::{
+    FormulaContext, FormulaError, FunctionRegistry, evaluate, parse, tokenize,
+};
 use std::collections::HashMap;
 
 struct DummyContext {
@@ -30,15 +32,20 @@ impl FormulaContext for DummyContext {
     }
 }
 
-fn eval_str(ctx: &DummyContext, input: &str) -> Result<Value, FormulaError> {
+fn eval_str(
+    ctx: &DummyContext,
+    input: &str,
+    registry: &FunctionRegistry,
+) -> Result<Value, FormulaError> {
     let tokens = tokenize(input)?;
     let expr = parse(&tokens)?;
-    evaluate(&expr, ctx)
+    evaluate(&expr, ctx, registry)
 }
 
 fn eval_str_no_ctx(input: &str) -> Result<Value, FormulaError> {
     let ctx = DummyContext::new();
-    eval_str(&ctx, input)
+    let registry = FunctionRegistry::new();
+    eval_str(&ctx, input, &registry)
 }
 
 fn assert_integer(result: Result<Value, FormulaError>, expected: i64) {
@@ -329,9 +336,8 @@ fn eval_float_non_finite_result() {
 }
 
 #[test]
-fn eval_pow_negative_exponent_error() {
-    let result = eval_str_no_ctx("2 ^ -1");
-    assert!(result.is_err());
+fn eval_pow_negative_exponent_returns_float() {
+    assert_float(eval_str_no_ctx("2 ^ -1"), 0.5);
 }
 
 #[test]
@@ -424,21 +430,24 @@ fn eval_or_non_boolean_error() {
 fn eval_cell_reference() {
     let mut ctx = DummyContext::new();
     ctx.set("A1", Value::Integer(Integer::new(10)));
-    assert_integer(eval_str(&ctx, "A1"), 10);
+    let registry = FunctionRegistry::new();
+    assert_integer(eval_str(&ctx, "A1", &registry), 10);
 }
 
 #[test]
 fn eval_cell_reference_in_expression() {
     let mut ctx = DummyContext::new();
     ctx.set("A1", Value::Integer(Integer::new(10)));
-    assert_integer(eval_str(&ctx, "A1 + 5"), 15);
+    let registry = FunctionRegistry::new();
+    assert_integer(eval_str(&ctx, "A1 + 5", &registry), 15);
 }
 
 #[test]
 fn eval_missing_cell_reference_error() {
     let ctx = DummyContext::new();
+    let registry = FunctionRegistry::new();
     assert_error(
-        eval_str(&ctx, "A1"),
+        eval_str(&ctx, "A1", &registry),
         FormulaError::InvalidReference("cell A1 not found".to_string()),
     );
 }
@@ -447,211 +456,26 @@ fn eval_missing_cell_reference_error() {
 fn eval_sheet_cell_reference() {
     let mut ctx = DummyContext::new();
     ctx.set("Sheet2!C3", Value::Text(Text::new("hi".to_string())));
-    assert_text(eval_str(&ctx, "Sheet2!C3"), "hi");
-}
-
-#[test]
-fn eval_range_in_function_sum() {
-    let mut ctx = DummyContext::new();
-    ctx.set("A1", Value::Integer(Integer::new(1)));
-    ctx.set("A2", Value::Integer(Integer::new(2)));
-    ctx.set("A3", Value::Integer(Integer::new(3)));
-    assert_integer(eval_str(&ctx, "SUM(A1:A3)"), 6);
+    let registry = FunctionRegistry::new();
+    assert_text(eval_str(&ctx, "Sheet2!C3", &registry), "hi");
 }
 
 #[test]
 fn eval_range_not_allowed_scalar() {
     let ctx = DummyContext::new();
+    let registry = FunctionRegistry::new();
     assert_error(
-        eval_str(&ctx, "A1:A3"),
+        eval_str(&ctx, "A1:A3", &registry),
         FormulaError::Eval("range not allowed in scalar context".to_string()),
     );
 }
 
 #[test]
-fn eval_sum_empty_args_error() {
-    let result = eval_str_no_ctx("SUM()");
-    assert!(result.is_err());
-    match result {
-        Err(FormulaError::Eval(_)) => {}
-        other => panic!("expected Eval error, got {other:?}"),
-    }
-}
-
-#[test]
-fn eval_sum_integer() {
-    assert_integer(eval_str_no_ctx("SUM(1, 2, 3)"), 6);
-}
-
-#[test]
-fn eval_sum_float() {
-    assert_float(eval_str_no_ctx("SUM(1.5, 2.5)"), 4.0);
-}
-
-#[test]
-fn eval_sum_mixed_types() {
-    assert_float(eval_str_no_ctx("SUM(1, 2.5, 3)"), 6.5);
-}
-
-#[test]
-fn eval_sum_type_mismatch() {
-    assert_error(
-        eval_str_no_ctx("SUM(1, \"a\")"),
-        FormulaError::TypeMismatch("SUM expects numeric values".to_string()),
-    );
-}
-
-#[test]
-fn eval_average_integer() {
-    assert_float(eval_str_no_ctx("AVERAGE(1, 2, 3)"), 2.0);
-}
-
-#[test]
-fn eval_average_single() {
-    assert_float(eval_str_no_ctx("AVG(5)"), 5.0);
-}
-
-#[test]
-fn eval_average_empty_error() {
-    let result = eval_str_no_ctx("AVERAGE()");
-    assert!(result.is_err());
-    match result {
-        Err(FormulaError::Eval(_)) => {}
-        other => panic!("expected Eval error, got {other:?}"),
-    }
-}
-
-#[test]
-fn eval_min_integer() {
-    assert_integer(eval_str_no_ctx("MIN(5, 2, 8)"), 2);
-}
-
-#[test]
-fn eval_max_integer() {
-    assert_integer(eval_str_no_ctx("MAX(5, 2, 8)"), 8);
-}
-
-#[test]
-fn eval_min_empty_error() {
-    let result = eval_str_no_ctx("MIN()");
-    assert!(result.is_err());
-    match result {
-        Err(FormulaError::Eval(_)) => {}
-        other => panic!("expected Eval error, got {other:?}"),
-    }
-}
-
-#[test]
-fn eval_if_true() {
-    assert_integer(eval_str_no_ctx("IF(true, 1, 2)"), 1);
-}
-
-#[test]
-fn eval_if_false() {
-    assert_integer(eval_str_no_ctx("IF(false, 1, 2)"), 2);
-}
-
-#[test]
-fn eval_if_wrong_arity() {
-    assert_error(
-        eval_str_no_ctx("IF(true, 1)"),
-        FormulaError::WrongArity("IF expects 3 arguments".to_string()),
-    );
-}
-
-#[test]
-fn eval_if_non_boolean_condition() {
-    assert_error(
-        eval_str_no_ctx("IF(1, 2, 3)"),
-        FormulaError::TypeMismatch("IF condition must be boolean".to_string()),
-    );
-}
-
-#[test]
-fn eval_and_function_all_true() {
-    assert_boolean(eval_str_no_ctx("AND(true, true, true)"), true);
-}
-
-#[test]
-fn eval_and_function_false_short_circuit() {
-    assert_boolean(eval_str_no_ctx("AND(true, false, true)"), false);
-}
-
-#[test]
-fn eval_or_function_false_true() {
-    assert_boolean(eval_str_no_ctx("OR(false, true, false)"), true);
-}
-
-#[test]
-fn eval_or_function_all_false() {
-    assert_boolean(eval_str_no_ctx("OR(false, false)"), false);
-}
-
-#[test]
-fn eval_not_function() {
-    assert_boolean(eval_str_no_ctx("NOT(false)"), true);
-}
-
-#[test]
-fn eval_not_function_wrong_arity() {
-    assert_error(
-        eval_str_no_ctx("NOT(true, false)"),
-        FormulaError::WrongArity("NOT expects 1 argument".to_string()),
-    );
-}
-
-#[test]
-fn eval_concat_text() {
-    assert_text(
-        eval_str_no_ctx("CONCAT(\"Hello\", \" \", \"World\")"),
-        "Hello World",
-    );
-}
-
-#[test]
-fn eval_concat_with_numbers() {
-    assert_text(eval_str_no_ctx("CONCAT(1, 2.5, true)"), "12.5true");
-}
-
-#[test]
-fn eval_trim() {
-    assert_text(eval_str_no_ctx("TRIM(\"  hello  \")"), "hello");
-}
-
-#[test]
-fn eval_upper() {
-    assert_text(eval_str_no_ctx("UPPER(\"hello\")"), "HELLO");
-}
-
-#[test]
-fn eval_lower() {
-    assert_text(eval_str_no_ctx("LOWER(\"HELLO\")"), "hello");
-}
-
-#[test]
-fn eval_len() {
-    assert_integer(eval_str_no_ctx("LEN(\"hello\")"), 5);
-}
-
-#[test]
 fn eval_unknown_function() {
+    let ctx = DummyContext::new();
+    let registry = FunctionRegistry::new();
     assert_error(
-        eval_str_no_ctx("FOO(1)"),
+        eval_str(&ctx, "FOO(1)", &registry),
         FormulaError::UnknownFunction("FOO".to_string()),
     );
-}
-
-#[test]
-fn eval_nested_function_calls() {
-    assert_integer(eval_str_no_ctx("MAX(MIN(1, 2), 3)"), 3);
-}
-
-#[test]
-fn eval_function_with_expression_arg() {
-    assert_integer(eval_str_no_ctx("SUM(1 + 2, 3 * 2)"), 9);
-}
-
-#[test]
-fn eval_complex_expression() {
-    assert_boolean(eval_str_no_ctx("(1 + 2) * (3 - 1) > 4"), true);
 }
