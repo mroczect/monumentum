@@ -35,6 +35,14 @@ impl Catalog {
         Ok(())
     }
 
+    pub fn replace_table(&mut self, name: &str, table: Table) -> Result<(), DbError> {
+        if !self.tables.contains_key(name) {
+            return Err(DbError::table_not_found(name));
+        }
+        self.tables.insert(name.to_string(), table);
+        Ok(())
+    }
+
     #[must_use]
     pub fn get_table(&self, name: &str) -> Option<&Table> {
         self.tables.get(name)
