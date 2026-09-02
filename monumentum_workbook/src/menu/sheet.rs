@@ -25,6 +25,7 @@ impl<S: StorageEngine> Workbook<S> {
     }
 
     pub fn drop_sheet(&mut self, name: &str) -> Result<(), WorkbookError> {
+        self.ensure_writable(name)?;
         self.catalog.drop_table(name)?;
         Ok(())
     }
@@ -50,11 +51,7 @@ impl<S: StorageEngine> Workbook<S> {
 
         self.catalog.drop_table(old_name)?;
         self.catalog.create_table(new_table.schema().clone())?;
-        let inserted_table = self.catalog.get_table_mut(new_name).ok_or_else(|| {
-            WorkbookError::Db(monumentum_db::error::DbError::table_not_found(new_name).to_string())
-        })?;
-        inserted_table.replace_rows(new_table.rows().to_vec())?;
-
+        self.catalog.replace_table(new_name, new_table)?;
         Ok(())
     }
 

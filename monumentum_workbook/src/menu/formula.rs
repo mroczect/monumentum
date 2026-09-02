@@ -6,6 +6,8 @@ use monumentum_query::coordinates::CellRef;
 use monumentum_query::formula::{FormulaContext, FormulaError, evaluate, parse, tokenize};
 use std::collections::HashSet;
 
+const MAX_EVAL_DEPTH: usize = 128;
+
 impl<S: StorageEngine> Workbook<S> {
     pub fn set_formula(
         &mut self,
@@ -36,7 +38,8 @@ impl<S: StorageEngine> Workbook<S> {
         col_idx: usize,
     ) -> Result<Value, WorkbookError> {
         let stack = RefCell::new(HashSet::new());
-        self.evaluate_cell(sheet, row_idx, col_idx, &stack)
+        let depth = RefCell::new(0);
+        self.evaluate_cell(sheet, row_idx, col_idx, &stack, &depth)
     }
 
     fn evaluate_cell(
@@ -45,6 +48,7 @@ impl<S: StorageEngine> Workbook<S> {
         row_idx: usize,
         col_idx: usize,
         stack: &RefCell<HashSet<String>>,
+        depth: &RefCell<usize>,
     ) -> Result<Value, WorkbookError> {
         let table = self.catalog.get_table(sheet).ok_or_else(|| {
             WorkbookError::Db(monumentum_db::error::DbError::table_not_found(sheet).to_string())
@@ -59,8 +63,21 @@ impl<S: StorageEngine> Workbook<S> {
                 if stack.borrow().contains(&cell_key) {
                     return Err(WorkbookError::CircularReference);
                 }
+                if *depth.borrow() >= MAX_EVAL_DEPTH {
+                    return Err(WorkbookError::Formula(
+                        "maximum evaluation depth exceeded".to_string(),
+                    ));
+                }
                 let _ = stack.borrow_mut().insert(cell_key.clone());
-                let result = self.evaluate_formula_str(formula_str, sheet, stack);
+                {
+                    let mut d = depth.borrow_mut();
+                    *d = d.saturating_add(1);
+                }
+                let result = self.evaluate_formula_str(formula_str, sheet, stack, depth);
+                {
+                    let mut d = depth.borrow_mut();
+                    *d = d.saturating_sub(1);
+                }
                 let _ = stack.borrow_mut().remove(&cell_key);
                 result
             }
@@ -73,6 +90,7 @@ impl<S: StorageEngine> Workbook<S> {
         formula: &str,
         current_sheet: &str,
         stack: &RefCell<HashSet<String>>,
+        depth: &RefCell<usize>,
     ) -> Result<Value, WorkbookError> {
         let tokens = tokenize(formula)?;
         let expr = parse(&tokens)?;
@@ -80,6 +98,7 @@ impl<S: StorageEngine> Workbook<S> {
             workbook: self,
             current_sheet,
             stack,
+            depth,
         };
         evaluate(&expr, &ctx, &self.functions).map_err(WorkbookError::from)
     }
@@ -89,6 +108,7 @@ struct WorkbookFormulaContext<'a, S: StorageEngine> {
     workbook: &'a Workbook<S>,
     current_sheet: &'a str,
     stack: &'a RefCell<HashSet<String>>,
+    depth: &'a RefCell<usize>,
 }
 
 impl<S: StorageEngine> FormulaContext for WorkbookFormulaContext<'_, S> {
@@ -98,7 +118,7 @@ impl<S: StorageEngine> FormulaContext for WorkbookFormulaContext<'_, S> {
         let row_idx = cell.row as usize;
         let col_idx = cell.col as usize;
         self.workbook
-            .evaluate_cell(sheet, row_idx, col_idx, self.stack)
+            .evaluate_cell(sheet, row_idx, col_idx, self.stack, self.depth)
             .map_err(|e| match e {
                 WorkbookError::Formula(msg) => FormulaError::Eval(msg),
                 WorkbookError::CircularReference => {

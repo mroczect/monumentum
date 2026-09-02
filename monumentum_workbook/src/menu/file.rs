@@ -2,7 +2,6 @@ use crate::Workbook;
 use crate::WorkbookError;
 use monumentum_db::core::catalog::Catalog;
 use monumentum_db::store::storage::{FileStorage, InMemoryStorage, StorageEngine};
-use monumentum_query::formula::FunctionRegistry;
 use std::path::Path;
 
 const FILE_EXTENSION: &str = "monumentum";
@@ -22,7 +21,7 @@ impl Workbook<FileStorage> {
         Ok(Self {
             catalog,
             storage,
-            functions: FunctionRegistry::new(),
+            functions: Self::default_registry(),
         })
     }
 
@@ -37,7 +36,7 @@ impl Workbook<FileStorage> {
         Ok(Self {
             catalog,
             storage,
-            functions: FunctionRegistry::new(),
+            functions: Self::default_registry(),
         })
     }
 
@@ -90,7 +89,7 @@ impl Workbook<InMemoryStorage> {
         Self {
             catalog,
             storage,
-            functions: FunctionRegistry::new(),
+            functions: Self::default_registry(),
         }
     }
 
@@ -100,7 +99,7 @@ impl Workbook<InMemoryStorage> {
         Self {
             catalog,
             storage,
-            functions: FunctionRegistry::new(),
+            functions: Self::default_registry(),
         }
     }
 
