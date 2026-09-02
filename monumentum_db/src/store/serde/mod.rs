@@ -69,6 +69,15 @@ pub(crate) fn read_bytes(cursor: &mut Cursor<&[u8]>) -> Result<Vec<u8>, DbError>
             format!("declared length {} exceeds maximum allowed", len),
         )));
     }
+
+    let remaining = cursor.get_ref().len() - cursor.position() as usize;
+    if len > remaining {
+        return Err(DbError::corruption(std::io::Error::new(
+            std::io::ErrorKind::UnexpectedEof,
+            "not enough bytes for declared length",
+        )));
+    }
+
     let mut buf = vec![0u8; len];
     cursor.read_exact(&mut buf)?;
     Ok(buf)

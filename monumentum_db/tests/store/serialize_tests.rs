@@ -51,7 +51,7 @@ fn create_sample_catalog() -> Result<Catalog, DbError> {
 #[test]
 fn encode_decode_catalog_empty_roundtrip() -> Result<(), DbError> {
     let catalog = Catalog::new();
-    let bytes = encode_catalog(&catalog);
+    let bytes = encode_catalog(&catalog)?;
     let decoded = decode_catalog(&bytes)?;
     assert_eq!(catalog, decoded);
     Ok(())
@@ -60,7 +60,7 @@ fn encode_decode_catalog_empty_roundtrip() -> Result<(), DbError> {
 #[test]
 fn encode_decode_catalog_with_tables_roundtrip() -> Result<(), DbError> {
     let catalog = create_sample_catalog()?;
-    let bytes = encode_catalog(&catalog);
+    let bytes = encode_catalog(&catalog)?;
     let decoded = decode_catalog(&bytes)?;
     assert_eq!(catalog, decoded);
     Ok(())

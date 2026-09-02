@@ -60,8 +60,8 @@ impl TableSchema {
     }
 
     #[must_use]
-    pub fn columns_mut(&mut self) -> &mut Vec<ColumnDef> {
-        &mut self.columns
+    pub fn get_column_mut(&mut self, index: usize) -> Option<&mut ColumnDef> {
+        self.columns.get_mut(index)
     }
 
     #[must_use]

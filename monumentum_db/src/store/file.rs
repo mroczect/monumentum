@@ -72,6 +72,13 @@ fn unique_tmp_path(parent: &Path, base_name: &str) -> PathBuf {
     let mut random_bytes = [0u8; 16];
     if let Ok(mut f) = File::open("/dev/urandom") {
         let _ = f.read_exact(&mut random_bytes);
+    } else {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        let bytes = now.to_le_bytes();
+        random_bytes[..16].copy_from_slice(&bytes);
     }
     let random_hex: String = random_bytes.iter().map(|b| format!("{b:02x}")).collect();
     parent.join(format!(
