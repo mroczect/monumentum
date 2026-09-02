@@ -72,7 +72,6 @@ impl FileStorage {
             (Catalog::new(), 0)
         };
 
-        // Rekam WAL: abaikan record dengan seq <= snapshot_seq (kemungkinan sisa dari checkpoint gagal)
         let records = wal.read_all()?;
         for record in records {
             let (seq, cat) = decode_snapshot(&record)?;
@@ -80,7 +79,6 @@ impl FileStorage {
                 current_seq = seq;
                 catalog = cat;
             }
-            // Jika seq <= current_seq, lewati (record lama yang belum terhapus)
         }
 
         Ok(Self {
@@ -98,8 +96,6 @@ impl FileStorage {
     pub fn checkpoint(&mut self) -> Result<(), DbError> {
         let data = encode_snapshot(self.current_seq, &self.catalog)?;
         write_all_atomic(&self.data_path, &data)?;
-        // Jika truncate gagal, WAL akan berisi record dengan seq <= snapshot_seq,
-        // yang akan diabaikan pada open berikutnya (lihat logika open).
         self.wal.truncate()?;
         Ok(())
     }
@@ -142,7 +138,6 @@ impl StorageEngine for FileStorage {
             .ok_or_else(|| DbError::invalid_operation("sequence number overflow"))?;
         let data = encode_snapshot(new_seq, catalog)?;
         self.wal.append(&data)?;
-        // Baru update state setelah append sukses
         self.current_seq = new_seq;
         self.catalog = catalog.clone();
         Ok(())
