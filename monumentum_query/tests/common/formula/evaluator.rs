@@ -336,9 +336,8 @@ fn eval_float_non_finite_result() {
 }
 
 #[test]
-fn eval_pow_negative_exponent_error() {
-    let result = eval_str_no_ctx("2 ^ -1");
-    assert!(result.is_err());
+fn eval_pow_negative_exponent_returns_float() {
+    assert_float(eval_str_no_ctx("2 ^ -1"), 0.5);
 }
 
 #[test]
