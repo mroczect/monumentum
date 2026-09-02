@@ -14,3 +14,4 @@ rust-version.workspace = true
 description = "SQL-like query parser for Monumentum."
 
 [dependencies]
+monumentum_db = {path = "../monumentum_db", version = "0.1.0" }
