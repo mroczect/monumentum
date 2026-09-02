@@ -165,7 +165,6 @@ impl Table {
         if self.read_only {
             return Err(DbError::invalid_operation("table is read-only"));
         }
-
         if row_idx >= self.rows.len() || col_idx >= self.schema.columns().len() {
             return Err(DbError::invalid_operation("index out of bounds"));
         }
@@ -176,22 +175,44 @@ impl Table {
 
         if let Some(col) = self.schema.columns().get(col_idx)
             && (col.is_unique() || col.is_primary_key())
-            && !value.is_null()
-            && let Some(key) = IndexKey::from_value(&value)
-            && let Some(index) = &self.unique_indexes[col_idx]
-            && index.contains(&key)
         {
-            let indices = index.get_indices(&key).unwrap_or(&[]);
-            if indices.iter().any(|&r| r != row_idx) {
-                return Err(DbError::invalid_operation(format!(
-                    "duplicate value for column '{}'",
-                    col.name()
-                )));
+            if !value.is_null()
+                && let Some(key) = IndexKey::from_value(&value)
+            {
+                let existing_indices = self.unique_indexes[col_idx]
+                    .as_ref()
+                    .and_then(|index| index.get_indices(&key))
+                    .map(|slice| slice.to_vec())
+                    .unwrap_or_default();
+                if existing_indices.iter().any(|&r| r != row_idx) {
+                    return Err(DbError::invalid_operation(format!(
+                        "duplicate value for column '{}'",
+                        col.name()
+                    )));
+                }
             }
+
+            let old_value = &self.rows[row_idx].values()[col_idx];
+            if !old_value.is_null()
+                && let Some(old_key) = IndexKey::from_value(old_value)
+                && let Some(index) = &mut self.unique_indexes[col_idx]
+            {
+                index.remove(&old_key, row_idx);
+            }
+
+            self.rows[row_idx].values_mut()[col_idx] = value;
+
+            if !self.rows[row_idx].values()[col_idx].is_null()
+                && let Some(new_key) =
+                    IndexKey::from_value(&self.rows[row_idx].values()[col_idx])
+                && let Some(index) = &mut self.unique_indexes[col_idx]
+            {
+                index.insert(new_key, row_idx);
+            }
+        } else {
+            self.rows[row_idx].values_mut()[col_idx] = value;
         }
 
-        self.rows[row_idx].values_mut()[col_idx] = value;
-        self.rebuild_indexes();
         Ok(())
     }
 
@@ -203,14 +224,21 @@ impl Table {
         if self.read_only {
             return Err(DbError::invalid_operation("table is read-only"));
         }
+
+        let mut test_schema = self.schema.clone();
+        let test_col = test_schema
+            .get_column_mut(col_idx)
+            .ok_or_else(|| DbError::invalid_operation("column index out of bounds"))?;
+        test_col.set_allowed_values(values.clone());
+        for row in &self.rows {
+            test_schema.validate_values(row.values())?;
+        }
+
         let col = self
             .schema
             .get_column_mut(col_idx)
             .ok_or_else(|| DbError::invalid_operation("column index out of bounds"))?;
         col.set_allowed_values(values);
-        for row in &self.rows {
-            self.schema.validate_values(row.values())?;
-        }
         Ok(())
     }
 
