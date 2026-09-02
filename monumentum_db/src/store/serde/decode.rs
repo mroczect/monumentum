@@ -1,4 +1,5 @@
-use super::*;
+use super::{FORMAT_VERSION, decode_data_type, decode_value, read_bytes, read_u8, read_u32};
+use crate::DbError;
 use crate::core::catalog::Catalog;
 use crate::core::row::Row;
 use crate::core::schema::column::{ColumnDef, ComparisonOp};
@@ -159,6 +160,8 @@ pub fn decode_table(cursor: &mut Cursor<&[u8]>) -> Result<Table, DbError> {
     let mut schema_cursor = Cursor::new(&schema_bytes[..]);
     let schema = decode_table_schema(&mut schema_cursor)?;
 
+    let read_only = read_u8(cursor)? != 0;
+
     let row_count_u32 = read_u32(cursor)?;
     let row_count = usize::try_from(row_count_u32).map_err(|_| {
         DbError::corruption(std::io::Error::new(
@@ -173,6 +176,7 @@ pub fn decode_table(cursor: &mut Cursor<&[u8]>) -> Result<Table, DbError> {
         )));
     }
     let mut table = Table::new(schema);
+    table.set_read_only(read_only);
     for _ in 0..row_count {
         let row_bytes = read_bytes(cursor)?;
         let mut row_cursor = Cursor::new(&row_bytes[..]);
