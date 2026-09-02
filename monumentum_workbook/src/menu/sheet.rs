@@ -30,6 +30,7 @@ impl<S: StorageEngine> Workbook<S> {
     }
 
     pub fn rename_sheet(&mut self, old_name: &str, new_name: &str) -> Result<(), WorkbookError> {
+        self.ensure_writable(old_name)?;
         if self.catalog.get_table(new_name).is_some() {
             return Err(WorkbookError::FileExists);
         }
@@ -58,6 +59,7 @@ impl<S: StorageEngine> Workbook<S> {
     }
 
     pub fn insert_row(&mut self, sheet: &str, values: Vec<Value>) -> Result<(), WorkbookError> {
+        self.ensure_writable(sheet)?;
         let table = self.catalog.get_table_mut(sheet).ok_or_else(|| {
             WorkbookError::Db(monumentum_db::error::DbError::table_not_found(sheet).to_string())
         })?;
@@ -67,6 +69,7 @@ impl<S: StorageEngine> Workbook<S> {
     }
 
     pub fn delete_row(&mut self, sheet: &str, index: usize) -> Result<(), WorkbookError> {
+        self.ensure_writable(sheet)?;
         let table = self.catalog.get_table_mut(sheet).ok_or_else(|| {
             WorkbookError::Db(monumentum_db::error::DbError::table_not_found(sheet).to_string())
         })?;
@@ -80,6 +83,7 @@ impl<S: StorageEngine> Workbook<S> {
     }
 
     pub fn clear_sheet(&mut self, sheet: &str) -> Result<(), WorkbookError> {
+        self.ensure_writable(sheet)?;
         let table = self.catalog.get_table_mut(sheet).ok_or_else(|| {
             WorkbookError::Db(monumentum_db::error::DbError::table_not_found(sheet).to_string())
         })?;
