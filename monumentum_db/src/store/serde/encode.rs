@@ -1,4 +1,4 @@
-use super::*;
+use super::{FORMAT_VERSION, encode_data_type, encode_value, write_bytes, write_u8, write_u32};
 use crate::core::catalog::Catalog;
 use crate::core::row::Row;
 use crate::core::schema::column::{ColumnDef, ComparisonOp};
@@ -90,6 +90,8 @@ pub fn encode_table(table: &Table) -> Vec<u8> {
     let mut buf = Vec::new();
     let schema_bytes = encode_table_schema(table.schema());
     write_bytes(&mut buf, &schema_bytes);
+
+    write_u8(&mut buf, table.is_read_only() as u8);
 
     write_u32(&mut buf, table.len() as u32);
     for row in table.rows() {
