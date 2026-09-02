@@ -57,4 +57,13 @@ impl HashIndex {
     pub(crate) fn get_indices(&self, key: &IndexKey) -> Option<&[usize]> {
         self.map.get(key).map(Vec::as_slice)
     }
+
+    pub(crate) fn remove(&mut self, key: &IndexKey, row_idx: usize) {
+            if let Some(indices) = self.map.get_mut(key) {
+                indices.retain(|&x| x != row_idx);
+                if indices.is_empty() {
+                    self.map.remove(key);
+                }
+            }
+        }
 }
