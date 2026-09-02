@@ -177,7 +177,10 @@ impl ColumnDef {
         use crate::error::DbError;
 
         if value.is_formula() {
-            return Ok(());
+            return Err(DbError::invalid_operation(format!(
+                "formula is not allowed in column '{}' without evaluation",
+                self.name
+            )));
         }
 
         if value.is_null() {
