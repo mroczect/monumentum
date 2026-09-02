@@ -1,6 +1,7 @@
 #![cfg_attr(test, allow(unused_crate_dependencies))]
 use monumentum_db::core::catalog::Catalog;
 use monumentum_db::core::table::Table;
+use monumentum_db::core::value::Value;
 use monumentum_db::store::storage::StorageEngine;
 mod error;
 pub mod menu;
@@ -40,6 +41,53 @@ impl<S: StorageEngine> Workbook<S> {
 
     pub fn persist_catalog(&mut self) -> Result<(), WorkbookError> {
         self.storage.save_catalog(&self.catalog)?;
+        Ok(())
+    }
+
+    pub fn set_allowed_values(
+        &mut self,
+        sheet: &str,
+        col_name: &str,
+        values: Vec<Value>,
+    ) -> Result<(), WorkbookError> {
+        let table = self.catalog.get_table_mut(sheet).ok_or_else(|| {
+            WorkbookError::Db(monumentum_db::error::DbError::table_not_found(sheet).to_string())
+        })?;
+        let idx = table.schema().column_index(col_name).ok_or_else(|| {
+            WorkbookError::Db(monumentum_db::error::DbError::column_not_found(col_name).to_string())
+        })?;
+        let col_def = table
+            .schema_mut()
+            .columns_mut()
+            .get_mut(idx)
+            .ok_or_else(|| {
+                WorkbookError::Db(
+                    monumentum_db::error::DbError::column_not_found(col_name).to_string(),
+                )
+            })?;
+        col_def.set_allowed_values(Some(values));
+        Ok(())
+    }
+
+    pub fn validate_cell(
+        &self,
+        sheet: &str,
+        row_idx: usize,
+        col_idx: usize,
+    ) -> Result<(), WorkbookError> {
+        let table = self.catalog.get_table(sheet).ok_or_else(|| {
+            WorkbookError::Db(monumentum_db::error::DbError::table_not_found(sheet).to_string())
+        })?;
+        let value = table
+            .get(row_idx)
+            .and_then(|r| r.get(col_idx))
+            .ok_or(WorkbookError::InvalidReference)?;
+        let col_def = table
+            .schema()
+            .columns()
+            .get(col_idx)
+            .ok_or(WorkbookError::InvalidReference)?;
+        col_def.validate_value(value)?;
         Ok(())
     }
 }
