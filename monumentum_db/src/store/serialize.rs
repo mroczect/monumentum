@@ -201,6 +201,18 @@ pub fn encode_column_def(col: &ColumnDef) -> Vec<u8> {
         None => write_u8(&mut buf, 0),
     }
 
+    match col.allowed_values() {
+        Some(values) => {
+            write_u8(&mut buf, 1);
+            write_u32(&mut buf, values.len() as u32);
+            for v in values {
+                let val_bytes = encode_value(v);
+                write_bytes(&mut buf, &val_bytes);
+            }
+        }
+        None => write_u8(&mut buf, 0),
+    }
+
     buf
 }
 
@@ -280,6 +292,18 @@ pub fn decode_column_def(cursor: &mut Cursor<&[u8]>) -> Result<ColumnDef, DbErro
             table,
             column,
         }));
+    }
+
+    if read_u8(cursor)? == 1 {
+        let count = read_u32(cursor)? as usize;
+        let mut allowed = Vec::with_capacity(count);
+        for _ in 0..count {
+            let val_bytes = read_bytes(cursor)?;
+            let mut val_cursor = Cursor::new(&val_bytes[..]);
+            let value = decode_value(&mut val_cursor)?;
+            allowed.push(value);
+        }
+        col.set_allowed_values(Some(allowed));
     }
 
     Ok(col)
