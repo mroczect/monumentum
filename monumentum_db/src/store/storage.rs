@@ -72,19 +72,15 @@ impl FileStorage {
             (Catalog::new(), 0)
         };
 
+        // Rekam WAL: abaikan record dengan seq <= snapshot_seq (kemungkinan sisa dari checkpoint gagal)
         let records = wal.read_all()?;
-        let mut last_seq = current_seq;
         for record in records {
             let (seq, cat) = decode_snapshot(&record)?;
-            if seq <= last_seq {
-                return Err(DbError::corruption(std::io::Error::new(
-                    std::io::ErrorKind::InvalidData,
-                    "WAL sequence numbers are not strictly increasing",
-                )));
+            if seq > current_seq {
+                current_seq = seq;
+                catalog = cat;
             }
-            last_seq = seq;
-            current_seq = seq;
-            catalog = cat;
+            // Jika seq <= current_seq, lewati (record lama yang belum terhapus)
         }
 
         Ok(Self {
@@ -102,29 +98,27 @@ impl FileStorage {
     pub fn checkpoint(&mut self) -> Result<(), DbError> {
         let data = encode_snapshot(self.current_seq, &self.catalog)?;
         write_all_atomic(&self.data_path, &data)?;
+        // Jika truncate gagal, WAL akan berisi record dengan seq <= snapshot_seq,
+        // yang akan diabaikan pada open berikutnya (lihat logika open).
         self.wal.truncate()?;
         Ok(())
     }
 
     pub fn reload_from_disk(&mut self) -> Result<Catalog, DbError> {
         let data = std::fs::read(&self.data_path)?;
-        let (seq, cat) = decode_snapshot(&data)?;
+        let (snapshot_seq, snapshot_cat) = decode_snapshot(&data)?;
         let records = self.wal.read_all()?;
-        let mut last_seq = self.current_seq;
-        let mut current_seq = seq;
-        let mut catalog = cat;
+
+        let mut current_seq = snapshot_seq;
+        let mut catalog = snapshot_cat;
         for record in records {
             let (record_seq, record_cat) = decode_snapshot(&record)?;
-            if record_seq <= last_seq {
-                return Err(DbError::corruption(std::io::Error::new(
-                    std::io::ErrorKind::InvalidData,
-                    "WAL sequence numbers are not strictly increasing",
-                )));
+            if record_seq > current_seq {
+                current_seq = record_seq;
+                catalog = record_cat;
             }
-            last_seq = record_seq;
-            current_seq = record_seq;
-            catalog = record_cat;
         }
+
         self.catalog = catalog.clone();
         self.current_seq = current_seq;
         Ok(catalog)
@@ -142,12 +136,14 @@ impl StorageEngine for FileStorage {
     }
 
     fn save_catalog(&mut self, catalog: &Catalog) -> Result<(), DbError> {
-        self.current_seq = self
+        let new_seq = self
             .current_seq
             .checked_add(1)
             .ok_or_else(|| DbError::invalid_operation("sequence number overflow"))?;
-        let data = encode_snapshot(self.current_seq, catalog)?;
+        let data = encode_snapshot(new_seq, catalog)?;
         self.wal.append(&data)?;
+        // Baru update state setelah append sukses
+        self.current_seq = new_seq;
         self.catalog = catalog.clone();
         Ok(())
     }
