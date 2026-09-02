@@ -1,6 +1,6 @@
 use crate::core::catalog::Catalog;
 use crate::core::row::Row;
-use crate::core::schema::column::{ColumnDef, DataType};
+use crate::core::schema::column::{ColumnDef, ComparisonOp, DataType};
 use crate::core::schema::table_schema::TableSchema;
 use crate::core::table::Table;
 use crate::core::value::Value;
@@ -148,6 +148,44 @@ pub fn encode_column_def(col: &ColumnDef) -> Vec<u8> {
     write_u8(&mut buf, col.is_nullable() as u8);
     write_u8(&mut buf, col.is_primary_key() as u8);
     write_u8(&mut buf, col.is_unique() as u8);
+
+    match col.default_value() {
+        Some(v) => {
+            write_u8(&mut buf, 1);
+            let val_bytes = encode_value(v);
+            write_bytes(&mut buf, &val_bytes);
+        }
+        None => write_u8(&mut buf, 0),
+    }
+
+    match col.check_constraint() {
+        Some(cc) => {
+            write_u8(&mut buf, 1);
+            write_bytes(&mut buf, cc.column.as_bytes());
+            let op_tag = match cc.op {
+                ComparisonOp::Eq => 0,
+                ComparisonOp::NotEq => 1,
+                ComparisonOp::Lt => 2,
+                ComparisonOp::Lte => 3,
+                ComparisonOp::Gt => 4,
+                ComparisonOp::Gte => 5,
+            };
+            write_u8(&mut buf, op_tag);
+            let val_bytes = encode_value(&cc.value);
+            write_bytes(&mut buf, &val_bytes);
+        }
+        None => write_u8(&mut buf, 0),
+    }
+
+    match col.foreign_key() {
+        Some(fk) => {
+            write_u8(&mut buf, 1);
+            write_bytes(&mut buf, fk.table.as_bytes());
+            write_bytes(&mut buf, fk.column.as_bytes());
+        }
+        None => write_u8(&mut buf, 0),
+    }
+
     buf
 }
 
@@ -169,6 +207,68 @@ pub fn decode_column_def(cursor: &mut Cursor<&[u8]>) -> Result<ColumnDef, DbErro
     col.set_nullable(nullable);
     col.set_primary_key(primary_key);
     col.set_unique(unique);
+
+    if read_u8(cursor)? == 1 {
+        let val_bytes = read_bytes(cursor)?;
+        let mut val_cursor = Cursor::new(&val_bytes[..]);
+        let val = decode_value(&mut val_cursor)?;
+        col.set_default(Some(val));
+    }
+
+    if read_u8(cursor)? == 1 {
+        let column_bytes = read_bytes(cursor)?;
+        let column = String::from_utf8(column_bytes).map_err(|e| {
+            DbError::corruption(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                e.to_string(),
+            ))
+        })?;
+        let op_tag = read_u8(cursor)?;
+        let op = match op_tag {
+            0 => ComparisonOp::Eq,
+            1 => ComparisonOp::NotEq,
+            2 => ComparisonOp::Lt,
+            3 => ComparisonOp::Lte,
+            4 => ComparisonOp::Gt,
+            5 => ComparisonOp::Gte,
+            _ => {
+                return Err(DbError::corruption(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "invalid comparison op tag",
+                )));
+            }
+        };
+        let val_bytes = read_bytes(cursor)?;
+        let mut val_cursor = Cursor::new(&val_bytes[..]);
+        let value = decode_value(&mut val_cursor)?;
+        col.set_check(Some(crate::core::schema::column::CheckConstraint {
+            column,
+            op,
+            value,
+        }));
+    }
+
+    if read_u8(cursor)? == 1 {
+        let table_bytes = read_bytes(cursor)?;
+        let table = String::from_utf8(table_bytes).map_err(|e| {
+            DbError::corruption(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                e.to_string(),
+            ))
+        })?;
+        let column_bytes = read_bytes(cursor)?;
+        let column = String::from_utf8(column_bytes).map_err(|e| {
+            DbError::corruption(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                e.to_string(),
+            ))
+        })?;
+        col.set_foreign_key(Some(crate::core::schema::column::ForeignKey {
+            table,
+            column,
+        }));
+    }
+
     Ok(col)
 }
 
