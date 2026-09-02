@@ -34,8 +34,6 @@ fn debug_contains_variant_name() {
     assert!(debug.contains("InvalidName"));
 }
 
-// ==================== Display for each variant ====================
-
 #[test]
 fn display_cell_too_narrow() {
     assert_eq!(
@@ -291,8 +289,6 @@ fn display_db_error() {
     let err = WorkbookError::Db("custom message".to_string());
     assert_eq!(format!("{err}"), "database error: custom message");
 }
-
-// ==================== From<DbError> ====================
 
 #[test]
 fn from_db_error_table_not_found() {

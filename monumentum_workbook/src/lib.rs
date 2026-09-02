@@ -1,3 +1,4 @@
+#![cfg_attr(test, allow(unused_crate_dependencies))]
 use monumentum_db::core::catalog::Catalog;
 use monumentum_db::store::storage::StorageEngine;
 
