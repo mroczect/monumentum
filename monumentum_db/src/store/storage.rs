@@ -14,6 +14,7 @@ pub trait StorageEngine {
 }
 
 const SEQ_BYTES: usize = 8;
+const MAX_SNAPSHOT_SIZE: u64 = 256 * 1024 * 1024;
 
 fn encode_snapshot(seq: u64, catalog: &Catalog) -> Vec<u8> {
     let mut buf = Vec::with_capacity(SEQ_BYTES + 64);
@@ -57,6 +58,13 @@ impl FileStorage {
         let mut wal = Wal::open(&wal_path)?;
 
         let (mut catalog, mut current_seq) = if data_path.exists() {
+            let metadata = std::fs::metadata(&data_path)?;
+            if metadata.len() > MAX_SNAPSHOT_SIZE {
+                return Err(DbError::corruption(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "snapshot file too large",
+                )));
+            }
             let data = std::fs::read(&data_path)?;
             let (seq, cat) = decode_snapshot(&data)?;
             (cat, seq)
@@ -66,12 +74,10 @@ impl FileStorage {
 
         let records = wal.read_all()?;
         for record in records {
-            match decode_snapshot(&record) {
-                Ok((seq, cat)) if seq > current_seq => {
-                    current_seq = seq;
-                    catalog = cat;
-                }
-                _ => {}
+            let (seq, cat) = decode_snapshot(&record)?;
+            if seq > current_seq {
+                current_seq = seq;
+                catalog = cat;
             }
         }
 
@@ -106,7 +112,10 @@ impl StorageEngine for FileStorage {
     }
 
     fn save_catalog(&mut self, catalog: &Catalog) -> Result<(), DbError> {
-        self.current_seq = self.current_seq.wrapping_add(1);
+        self.current_seq = self
+            .current_seq
+            .checked_add(1)
+            .ok_or_else(|| DbError::invalid_operation("sequence number overflow"))?;
         let data = encode_snapshot(self.current_seq, catalog);
         self.wal.append(&data)?;
         self.catalog = catalog.clone();
@@ -151,4 +160,8 @@ impl StorageEngine for InMemoryStorage {
     fn get_table_mut(&mut self, name: &str) -> Option<&mut Table> {
         self.catalog.get_table_mut(name)
     }
+}
+
+impl Drop for FileStorage {
+    fn drop(&mut self) {}
 }
