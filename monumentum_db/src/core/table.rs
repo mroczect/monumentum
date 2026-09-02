@@ -5,7 +5,7 @@ use crate::core::schema::table_schema::TableSchema;
 use crate::core::value::Value;
 use crate::error::DbError;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Table {
     schema: TableSchema,
     rows: Vec<Row>,
