@@ -3,6 +3,8 @@ use crate::core::value::Value;
 use crate::error::DbError;
 use std::collections::HashSet;
 
+const MAX_COLUMNS: usize = 1024;
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct TableSchema {
     name: String,
@@ -20,6 +22,14 @@ impl TableSchema {
             return Err(DbError::invalid_operation(
                 "table must have at least one column",
             ));
+        }
+
+        if columns.len() > MAX_COLUMNS {
+            return Err(DbError::invalid_operation(format!(
+                "too many columns: {} (max {})",
+                columns.len(),
+                MAX_COLUMNS
+            )));
         }
 
         let mut seen = HashSet::new();
