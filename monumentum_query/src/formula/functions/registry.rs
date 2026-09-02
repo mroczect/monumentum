@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 pub type FunctionImpl = fn(&[Value]) -> Result<Value, FormulaError>;
 
-#[derive(Clone, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct FunctionRegistry {
     functions: HashMap<String, FunctionImpl>,
 }
