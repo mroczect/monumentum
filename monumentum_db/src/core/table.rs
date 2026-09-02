@@ -40,6 +40,16 @@ impl Table {
         &self.rows
     }
 
+    #[must_use]
+    pub fn get_mut(&mut self, index: usize) -> Option<&mut Row> {
+        self.rows.get_mut(index)
+    }
+
+    #[must_use]
+    pub fn rows_mut(&mut self) -> &mut Vec<Row> {
+        &mut self.rows
+    }
+
     pub fn insert(&mut self, row: Row) -> Result<(), DbError> {
         if row.len() != self.schema.columns().len() {
             return Err(DbError::invalid_operation(format!(
