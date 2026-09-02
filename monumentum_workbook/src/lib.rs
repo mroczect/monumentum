@@ -3,6 +3,7 @@ use monumentum_db::core::catalog::Catalog;
 use monumentum_db::core::table::Table;
 use monumentum_db::core::value::Value;
 use monumentum_db::store::storage::StorageEngine;
+use monumentum_query::formula::{FunctionImpl, FunctionRegistry};
 mod error;
 pub mod menu;
 pub mod transaction;
@@ -13,6 +14,7 @@ pub use error::WorkbookError;
 pub struct Workbook<S: StorageEngine> {
     pub(crate) catalog: Catalog,
     pub(crate) storage: S,
+    pub(crate) functions: FunctionRegistry,
 }
 
 impl<S: StorageEngine> Workbook<S> {
@@ -23,6 +25,15 @@ impl<S: StorageEngine> Workbook<S> {
 
     pub const fn catalog_mut(&mut self) -> &mut Catalog {
         &mut self.catalog
+    }
+
+    pub fn register_function(&mut self, name: &str, func: FunctionImpl) {
+        self.functions.register(name, func);
+    }
+
+    #[must_use]
+    pub const fn functions(&self) -> &FunctionRegistry {
+        &self.functions
     }
 }
 
