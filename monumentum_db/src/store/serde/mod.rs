@@ -15,6 +15,7 @@ pub(crate) const TAG_FLOAT: u8 = 2;
 pub(crate) const TAG_TEXT: u8 = 3;
 pub(crate) const TAG_BLOB: u8 = 4;
 pub(crate) const TAG_BOOLEAN: u8 = 5;
+pub(crate) const TAG_FORMULA: u8 = 6;
 
 pub(crate) const FORMAT_VERSION: u32 = 1;
 pub(crate) const MAX_READ_BYTES: usize = 64 * 1024 * 1024;
@@ -123,6 +124,10 @@ pub(crate) fn encode_value(value: &Value) -> Vec<u8> {
             write_u8(&mut buf, TAG_BOOLEAN);
             write_u8(&mut buf, *b as u8);
         }
+        Value::Formula(s) => {
+            write_u8(&mut buf, TAG_FORMULA);
+            write_bytes(&mut buf, s.as_bytes());
+        }
     }
     buf
 }
@@ -158,6 +163,16 @@ pub(crate) fn decode_value(cursor: &mut Cursor<&[u8]>) -> Result<Value, DbError>
         TAG_BOOLEAN => {
             let b = read_u8(cursor)? != 0;
             Ok(Value::Boolean(b))
+        }
+        TAG_FORMULA => {
+            let bytes = read_bytes(cursor)?;
+            let s = String::from_utf8(bytes).map_err(|e| {
+                DbError::corruption(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    e.to_string(),
+                ))
+            })?;
+            Ok(Value::Formula(s))
         }
         _ => Err(DbError::corruption(std::io::Error::new(
             std::io::ErrorKind::InvalidData,
