@@ -10,6 +10,15 @@ pub struct Wal {
     file: File,
 }
 
+impl Drop for Wal {
+    fn drop(&mut self) {
+        #[cfg(unix)]
+        {
+            let _ = self.file.unlock();
+        }
+    }
+}
+
 impl Wal {
     pub fn open(path: &Path) -> Result<Self, DbError> {
         let file = open_or_create(path)?;

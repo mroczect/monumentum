@@ -3,13 +3,23 @@ use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
+#[cfg(unix)]
+use std::os::unix::fs::OpenOptionsExt;
+
+#[cfg(target_os = "linux")]
+const O_NOFOLLOW: i32 = 0x20000;
+#[cfg(not(target_os = "linux"))]
+const O_NOFOLLOW: i32 = 0x100;
+
 pub fn open_or_create(path: &Path) -> Result<File, DbError> {
-    let file = OpenOptions::new()
-        .read(true)
-        .write(true)
-        .create(true)
-        .truncate(false)
-        .open(path)?;
+    let mut options = OpenOptions::new();
+    options.read(true).write(true).create(true).truncate(false);
+    #[cfg(unix)]
+    {
+        options.mode(0o600);
+        options.custom_flags(O_NOFOLLOW);
+    }
+    let file = options.open(path)?;
     Ok(file)
 }
 
@@ -34,11 +44,14 @@ pub fn write_all_atomic(path: &Path, data: &[u8]) -> Result<(), DbError> {
     );
 
     {
-        let mut tmp_file = OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .open(&tmp_path)?;
+        let mut tmp_options = OpenOptions::new();
+        tmp_options.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            tmp_options.mode(0o600);
+            tmp_options.custom_flags(O_NOFOLLOW);
+        }
+        let mut tmp_file = tmp_options.open(&tmp_path)?;
         tmp_file.write_all(data)?;
         tmp_file.sync_all()?;
     }
@@ -56,12 +69,17 @@ pub fn write_all_atomic(path: &Path, data: &[u8]) -> Result<(), DbError> {
 }
 
 fn unique_tmp_path(parent: &Path, base_name: &str) -> PathBuf {
-    let pid = std::process::id();
-    let counter = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
-    parent.join(format!(".{}.{}.{}.tmp", base_name, pid, counter))
+    let mut random_bytes = [0u8; 16];
+    if let Ok(mut f) = File::open("/dev/urandom") {
+        let _ = f.read_exact(&mut random_bytes);
+    }
+    let random_hex: String = random_bytes.iter().map(|b| format!("{b:02x}")).collect();
+    parent.join(format!(
+        ".{}.{}.{}.tmp",
+        base_name,
+        std::process::id(),
+        random_hex
+    ))
 }
 
 pub fn append_to_file(file: &mut File, data: &[u8]) -> Result<(), DbError> {

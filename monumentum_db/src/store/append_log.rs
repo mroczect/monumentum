@@ -114,7 +114,8 @@ pub fn read_records(file: &mut File) -> Result<Vec<Vec<u8>>, DbError> {
                 format!("unsupported log version {version}"),
             )));
         }
-        let length = u64::from_le_bytes(
+
+        let length_u64 = u64::from_le_bytes(
             header_buf
                 .get(8..16)
                 .ok_or_else(|| {
@@ -130,7 +131,13 @@ pub fn read_records(file: &mut File) -> Result<Vec<Vec<u8>>, DbError> {
                         "invalid header slice",
                     ))
                 })?,
-        ) as usize;
+        );
+        let length = usize::try_from(length_u64).map_err(|_| {
+            DbError::corruption(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "record length too large for platform",
+            ))
+        })?;
         if length > MAX_RECORD_SIZE {
             return Err(DbError::corruption(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
