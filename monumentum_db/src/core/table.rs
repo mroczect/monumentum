@@ -10,6 +10,7 @@ pub struct Table {
     schema: TableSchema,
     rows: Vec<Row>,
     unique_indexes: Vec<Option<HashIndex>>,
+    read_only: bool,
 }
 
 impl Table {
@@ -27,6 +28,7 @@ impl Table {
             schema,
             rows: Vec::new(),
             unique_indexes,
+            read_only: false,
         }
     }
 
@@ -36,8 +38,23 @@ impl Table {
     }
 
     #[must_use]
+    pub fn schema_mut(&mut self) -> &mut TableSchema {
+        &mut self.schema
+    }
+
+    #[must_use]
     pub fn rows(&self) -> &[Row] {
         &self.rows
+    }
+
+    #[must_use]
+    pub fn get_mut(&mut self, index: usize) -> Option<&mut Row> {
+        self.rows.get_mut(index)
+    }
+
+    #[must_use]
+    pub fn rows_mut(&mut self) -> &mut Vec<Row> {
+        &mut self.rows
     }
 
     pub fn insert(&mut self, row: Row) -> Result<(), DbError> {
@@ -180,5 +197,14 @@ impl Table {
             return None;
         }
         self.rows.iter().find(|row| row.get(col_idx) == Some(value))
+    }
+
+    #[must_use]
+    pub const fn is_read_only(&self) -> bool {
+        self.read_only
+    }
+
+    pub fn set_read_only(&mut self, value: bool) {
+        self.read_only = value;
     }
 }
