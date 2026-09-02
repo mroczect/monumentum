@@ -107,6 +107,8 @@ name = "monumentum_query"
 version = "0.1.0"
 dependencies = [
  "monumentum_db",
+ "pretty_assertions",
+ "proptest",
 ]
 
 [[package]]
