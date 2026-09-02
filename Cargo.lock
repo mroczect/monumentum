@@ -116,6 +116,7 @@ name = "monumentum_workbook"
 version = "0.1.0"
 dependencies = [
  "monumentum_db",
+ "monumentum_query",
  "pretty_assertions",
  "proptest",
  "tempfile",
