@@ -19,6 +19,13 @@ pub struct Workbook<S: StorageEngine> {
 
 impl<S: StorageEngine> Workbook<S> {
     #[must_use]
+    pub(crate) fn default_registry() -> FunctionRegistry {
+        let mut registry = FunctionRegistry::new();
+        monumentum_functions::register_all(&mut registry);
+        registry
+    }
+
+    #[must_use]
     pub const fn catalog(&self) -> &Catalog {
         &self.catalog
     }
@@ -61,6 +68,7 @@ impl<S: StorageEngine> Workbook<S> {
         col_name: &str,
         values: Vec<Value>,
     ) -> Result<(), WorkbookError> {
+        self.ensure_writable(sheet)?;
         let table = self.catalog.get_table_mut(sheet).ok_or_else(|| {
             WorkbookError::Db(monumentum_db::error::DbError::table_not_found(sheet).to_string())
         })?;
