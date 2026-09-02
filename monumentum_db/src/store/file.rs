@@ -2,7 +2,6 @@ use crate::error::DbError;
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
 
 #[cfg(unix)]
 use std::os::unix::fs::OpenOptionsExt;
@@ -11,8 +10,6 @@ use std::os::unix::fs::OpenOptionsExt;
 const O_NOFOLLOW: i32 = 0x20000;
 #[cfg(not(target_os = "linux"))]
 const O_NOFOLLOW: i32 = 0x100;
-
-static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 pub fn open_or_create(path: &Path) -> Result<File, DbError> {
     let mut options = OpenOptions::new();
@@ -44,7 +41,7 @@ pub fn write_all_atomic(path: &Path, data: &[u8]) -> Result<(), DbError> {
     let tmp_path = unique_tmp_path(
         parent,
         path.file_name().and_then(|s| s.to_str()).unwrap_or("tmp"),
-    );
+    )?;
 
     {
         let mut tmp_options = OpenOptions::new();
@@ -71,34 +68,28 @@ pub fn write_all_atomic(path: &Path, data: &[u8]) -> Result<(), DbError> {
     Ok(())
 }
 
-fn unique_tmp_path(parent: &Path, base_name: &str) -> PathBuf {
+fn unique_tmp_path(parent: &Path, base_name: &str) -> Result<PathBuf, DbError> {
     let mut random_bytes = [0u8; 16];
-    if let Ok(mut f) = File::open("/dev/urandom") {
-        let _ = f.read_exact(&mut random_bytes);
-    } else {
-        // Fallback ketika /dev/urandom tidak tersedia
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_nanos(); // u128
-        let now_low = now as u64;
-        let now_high = (now >> 64) as u64;
-        let pid = std::process::id() as u64;
-        let counter = TEMP_COUNTER.fetch_add(1, Ordering::SeqCst);
+    let mut f = File::open("/dev/urandom").map_err(|e| {
+        DbError::Io(std::io::Error::new(
+            e.kind(),
+            format!("failed to open /dev/urandom for temporary file generation: {e}"),
+        ))
+    })?;
+    f.read_exact(&mut random_bytes).map_err(|e| {
+        DbError::Io(std::io::Error::new(
+            e.kind(),
+            format!("failed to read from /dev/urandom: {e}"),
+        ))
+    })?;
 
-        let first = now_low ^ pid ^ counter;
-        let second = now_high ^ pid.wrapping_mul(0x9E37_79B9) ^ counter.wrapping_add(0x85EB_CA6B);
-
-        random_bytes[..8].copy_from_slice(&first.to_le_bytes());
-        random_bytes[8..].copy_from_slice(&second.to_le_bytes());
-    }
     let random_hex: String = random_bytes.iter().map(|b| format!("{b:02x}")).collect();
-    parent.join(format!(
+    Ok(parent.join(format!(
         ".{}.{}.{}.tmp",
         base_name,
         std::process::id(),
         random_hex
-    ))
+    )))
 }
 
 pub fn append_to_file(file: &mut File, data: &[u8]) -> Result<(), DbError> {
