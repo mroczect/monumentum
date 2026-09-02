@@ -4,6 +4,7 @@ use monumentum_db::core::table::Table;
 use monumentum_db::store::storage::StorageEngine;
 mod error;
 pub mod menu;
+pub mod transaction;
 
 pub use error::WorkbookError;
 
@@ -35,5 +36,10 @@ impl<S: StorageEngine> Workbook<S> {
         self.catalog.get_table_mut(name).ok_or_else(|| {
             WorkbookError::Db(monumentum_db::error::DbError::table_not_found(name).to_string())
         })
+    }
+
+    pub fn persist_catalog(&mut self) -> Result<(), WorkbookError> {
+        self.storage.save_catalog(&self.catalog)?;
+        Ok(())
     }
 }
