@@ -14,6 +14,9 @@ const TAG_FLOAT: u8 = 2;
 const TAG_TEXT: u8 = 3;
 const TAG_BLOB: u8 = 4;
 
+const FORMAT_VERSION: u32 = 1;
+const MAX_READ_BYTES: usize = 64 * 1024 * 1024;
+
 fn write_u8(buf: &mut Vec<u8>, v: u8) {
     buf.push(v);
 }
@@ -51,6 +54,12 @@ fn read_u64(cursor: &mut Cursor<&[u8]>) -> Result<u64, DbError> {
 
 fn read_bytes(cursor: &mut Cursor<&[u8]>) -> Result<Vec<u8>, DbError> {
     let len = read_u64(cursor)? as usize;
+    if len > MAX_READ_BYTES {
+        return Err(DbError::corruption(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!("declared length {} exceeds maximum allowed", len),
+        )));
+    }
     let mut buf = vec![0u8; len];
     cursor.read_exact(&mut buf)?;
     Ok(buf)
@@ -204,9 +213,7 @@ pub fn decode_column_def(cursor: &mut Cursor<&[u8]>) -> Result<ColumnDef, DbErro
     let unique = read_u8(cursor)? != 0;
 
     let mut col = ColumnDef::new(name, data_type);
-    col.set_nullable(nullable);
-    col.set_primary_key(primary_key);
-    col.set_unique(unique);
+    col.set_flags_raw(nullable, primary_key, unique);
 
     if read_u8(cursor)? == 1 {
         let val_bytes = read_bytes(cursor)?;
@@ -292,6 +299,12 @@ pub fn decode_table_schema(cursor: &mut Cursor<&[u8]>) -> Result<TableSchema, Db
         ))
     })?;
     let col_count = read_u32(cursor)? as usize;
+    if col_count > 1024 {
+        return Err(DbError::corruption(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "too many columns",
+        )));
+    }
     let mut columns = Vec::with_capacity(col_count);
     for _ in 0..col_count {
         let col_bytes = read_bytes(cursor)?;
@@ -314,6 +327,12 @@ pub fn encode_row(row: &Row) -> Vec<u8> {
 
 pub fn decode_row(cursor: &mut Cursor<&[u8]>) -> Result<Row, DbError> {
     let value_count = read_u32(cursor)? as usize;
+    if value_count > 1024 {
+        return Err(DbError::corruption(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "too many values in row",
+        )));
+    }
     let mut values = Vec::with_capacity(value_count);
     for _ in 0..value_count {
         let value_bytes = read_bytes(cursor)?;
@@ -343,6 +362,12 @@ pub fn decode_table(cursor: &mut Cursor<&[u8]>) -> Result<Table, DbError> {
     let schema = decode_table_schema(&mut schema_cursor)?;
 
     let row_count = read_u32(cursor)? as usize;
+    if row_count > 10_000_000 {
+        return Err(DbError::corruption(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "too many rows",
+        )));
+    }
     let mut table = Table::new(schema);
     for _ in 0..row_count {
         let row_bytes = read_bytes(cursor)?;
@@ -355,6 +380,7 @@ pub fn decode_table(cursor: &mut Cursor<&[u8]>) -> Result<Table, DbError> {
 
 pub fn encode_catalog(catalog: &Catalog) -> Vec<u8> {
     let mut buf = Vec::new();
+    write_u32(&mut buf, FORMAT_VERSION);
     write_u32(&mut buf, catalog.len() as u32);
     for (name, table) in catalog.tables() {
         write_bytes(&mut buf, name.as_bytes());
@@ -364,8 +390,26 @@ pub fn encode_catalog(catalog: &Catalog) -> Vec<u8> {
     buf
 }
 
-pub fn decode_catalog(cursor: &mut Cursor<&[u8]>) -> Result<Catalog, DbError> {
+pub fn decode_catalog(data: &[u8]) -> Result<Catalog, DbError> {
+    let mut cursor = Cursor::new(data);
+    let version = read_u32(&mut cursor)?;
+    if version != FORMAT_VERSION {
+        return Err(DbError::corruption(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!("unsupported format version {version}"),
+        )));
+    }
+    decode_catalog_inner(&mut cursor)
+}
+
+fn decode_catalog_inner(cursor: &mut Cursor<&[u8]>) -> Result<Catalog, DbError> {
     let table_count = read_u32(cursor)? as usize;
+    if table_count > 1024 {
+        return Err(DbError::corruption(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "too many tables",
+        )));
+    }
     let mut catalog = Catalog::new();
     for _ in 0..table_count {
         let name_bytes = read_bytes(cursor)?;
@@ -376,10 +420,11 @@ pub fn decode_catalog(cursor: &mut Cursor<&[u8]>) -> Result<Catalog, DbError> {
             ))
         })?;
         let table_bytes = read_bytes(cursor)?;
-        let mut table_cursor = Cursor::new(&table_bytes[..]);
-        let table = decode_table(&mut table_cursor)?;
+        let table = decode_table(&mut Cursor::new(&table_bytes[..]))?;
         catalog.create_table(table.schema().clone())?;
-        *catalog.get_table_mut(&name).unwrap() = table;
+        *catalog
+            .get_table_mut(&name)
+            .ok_or_else(|| DbError::table_not_found(&name))? = table;
     }
     Ok(catalog)
 }

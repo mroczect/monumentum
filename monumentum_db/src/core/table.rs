@@ -110,9 +110,41 @@ impl Table {
         self.rows.get(index)
     }
 
-    pub fn replace_rows(&mut self, rows: Vec<Row>) {
+    pub fn replace_rows(&mut self, rows: Vec<Row>) -> Result<(), DbError> {
+        for row in &rows {
+            if row.len() != self.schema.columns().len() {
+                return Err(DbError::invalid_operation(format!(
+                    "expected {} values, got {}",
+                    self.schema.columns().len(),
+                    row.len()
+                )));
+            }
+            self.schema.validate_values(row.values())?;
+        }
+
+        for (idx, col) in self.schema.columns().iter().enumerate() {
+            if col.is_unique() || col.is_primary_key() {
+                let mut seen_keys: Vec<IndexKey> = Vec::new();
+                for row in &rows {
+                    let val = row.get(idx).unwrap_or(&Value::Null);
+                    if !val.is_null()
+                        && let Some(key) = IndexKey::from_value(val)
+                    {
+                        if seen_keys.contains(&key) {
+                            return Err(DbError::invalid_operation(format!(
+                                "duplicate value for column '{}'",
+                                col.name()
+                            )));
+                        }
+                        seen_keys.push(key);
+                    }
+                }
+            }
+        }
+
         self.rows = rows;
         self.rebuild_indexes();
+        Ok(())
     }
 
     fn rebuild_indexes(&mut self) {

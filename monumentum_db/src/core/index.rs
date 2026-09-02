@@ -1,4 +1,3 @@
-// core/index.rs
 use crate::core::value::Value;
 use std::collections::HashMap;
 
@@ -6,6 +5,7 @@ use std::collections::HashMap;
 pub(crate) enum IndexKey {
     Null,
     Integer(i64),
+    Float(u64),
     Text(String),
     Blob(Vec<u8>),
 }
@@ -15,9 +15,17 @@ impl IndexKey {
         match v {
             Value::Null => Some(Self::Null),
             Value::Integer(i) => Some(Self::Integer(i.as_i64())),
+            Value::Float(f) => {
+                let bits = f.as_f64().to_bits();
+                let bits = if f.as_f64() == 0.0 {
+                    0.0f64.to_bits()
+                } else {
+                    bits
+                };
+                Some(Self::Float(bits))
+            }
             Value::Text(t) => Some(Self::Text(t.as_str().to_string())),
             Value::Blob(b) => Some(Self::Blob(b.as_slice().to_vec())),
-            Value::Float(_) => None,
         }
     }
 }

@@ -149,4 +149,10 @@ impl ColumnDef {
     pub fn set_foreign_key(&mut self, fk: Option<ForeignKey>) {
         self.foreign_key = fk;
     }
+
+    pub(crate) fn set_flags_raw(&mut self, nullable: bool, primary_key: bool, unique: bool) {
+        self.nullable = nullable;
+        self.primary_key = primary_key;
+        self.unique = unique;
+    }
 }

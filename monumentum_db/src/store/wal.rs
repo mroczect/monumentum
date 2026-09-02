@@ -13,7 +13,6 @@ pub struct Wal {
 impl Wal {
     pub fn open(path: &Path) -> Result<Self, DbError> {
         let file = open_or_create(path)?;
-        // Kunci file (blocking) untuk mencegah akses bersamaan
         #[cfg(unix)]
         {
             file.lock()?;
