@@ -1,4 +1,4 @@
-use crate::core::schema::column::{ColumnDef, ComparisonOp, DataType};
+use crate::core::schema::column::ColumnDef;
 use crate::core::value::Value;
 use crate::error::DbError;
 use std::collections::HashSet;
@@ -60,6 +60,11 @@ impl TableSchema {
     }
 
     #[must_use]
+    pub fn columns_mut(&mut self) -> &mut Vec<ColumnDef> {
+        &mut self.columns
+    }
+
+    #[must_use]
     pub fn column_index(&self, name: &str) -> Option<usize> {
         self.columns
             .iter()
@@ -81,79 +86,8 @@ impl TableSchema {
         }
 
         for (col, val) in self.columns.iter().zip(values) {
-            if val.is_null() {
-                if !col.is_nullable() {
-                    return Err(DbError::invalid_operation(format!(
-                        "column '{}' is not nullable",
-                        col.name()
-                    )));
-                }
-                continue;
-            }
-
-            let type_ok = match col.data_type() {
-                DataType::Null => false,
-                DataType::Integer => val.is_integer(),
-                DataType::Float => val.is_float(),
-                DataType::Text => val.is_text(),
-                DataType::Blob => val.is_blob(),
-            };
-            if !type_ok {
-                return Err(DbError::type_mismatch(format!(
-                    "column '{}' expects {}, got {}",
-                    col.name(),
-                    col.data_type(),
-                    val.type_name()
-                )));
-            }
-
-            if let Some(check) = col.check_constraint()
-                && !evaluate_check(val, check)
-            {
-                return Err(DbError::invalid_operation(format!(
-                    "check constraint failed for column '{}': {:?} {:?} {:?}",
-                    col.name(),
-                    check.column,
-                    check.op,
-                    check.value
-                )));
-            }
+            col.validate_value(val)?;
         }
         Ok(())
-    }
-}
-
-fn evaluate_check(val: &Value, check: &crate::core::schema::column::CheckConstraint) -> bool {
-    match (&val, &check.value) {
-        (Value::Integer(a), Value::Integer(b)) => match check.op {
-            ComparisonOp::Eq => a.as_i64() == b.as_i64(),
-            ComparisonOp::NotEq => a.as_i64() != b.as_i64(),
-            ComparisonOp::Lt => a.as_i64() < b.as_i64(),
-            ComparisonOp::Lte => a.as_i64() <= b.as_i64(),
-            ComparisonOp::Gt => a.as_i64() > b.as_i64(),
-            ComparisonOp::Gte => a.as_i64() >= b.as_i64(),
-        },
-        (Value::Float(a), Value::Float(b)) => match check.op {
-            ComparisonOp::Eq => a.as_f64() == b.as_f64(),
-            ComparisonOp::NotEq => a.as_f64() != b.as_f64(),
-            ComparisonOp::Lt => a.as_f64() < b.as_f64(),
-            ComparisonOp::Lte => a.as_f64() <= b.as_f64(),
-            ComparisonOp::Gt => a.as_f64() > b.as_f64(),
-            ComparisonOp::Gte => a.as_f64() >= b.as_f64(),
-        },
-        (Value::Text(a), Value::Text(b)) => match check.op {
-            ComparisonOp::Eq => a.as_str() == b.as_str(),
-            ComparisonOp::NotEq => a.as_str() != b.as_str(),
-            ComparisonOp::Lt => a.as_str() < b.as_str(),
-            ComparisonOp::Lte => a.as_str() <= b.as_str(),
-            ComparisonOp::Gt => a.as_str() > b.as_str(),
-            ComparisonOp::Gte => a.as_str() >= b.as_str(),
-        },
-        (Value::Blob(a), Value::Blob(b)) => match check.op {
-            ComparisonOp::Eq => a.as_slice() == b.as_slice(),
-            ComparisonOp::NotEq => a.as_slice() != b.as_slice(),
-            _ => false,
-        },
-        _ => false,
     }
 }

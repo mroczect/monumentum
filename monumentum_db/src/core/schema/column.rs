@@ -62,6 +62,7 @@ pub struct ColumnDef {
     default_value: Option<Value>,
     check_constraint: Option<CheckConstraint>,
     foreign_key: Option<ForeignKey>,
+    allowed_values: Option<Vec<Value>>,
 }
 
 impl ColumnDef {
@@ -76,6 +77,7 @@ impl ColumnDef {
             default_value: None,
             check_constraint: None,
             foreign_key: None,
+            allowed_values: None,
         }
     }
 
@@ -119,6 +121,11 @@ impl ColumnDef {
         self.foreign_key.as_ref()
     }
 
+    #[must_use]
+    pub const fn allowed_values(&self) -> Option<&Vec<Value>> {
+        self.allowed_values.as_ref()
+    }
+
     pub fn set_nullable(&mut self, value: bool) {
         self.nullable = value;
         if value {
@@ -150,9 +157,98 @@ impl ColumnDef {
         self.foreign_key = fk;
     }
 
+    pub fn set_allowed_values(&mut self, values: Option<Vec<Value>>) {
+        self.allowed_values = values;
+    }
+
     pub(crate) fn set_flags_raw(&mut self, nullable: bool, primary_key: bool, unique: bool) {
         self.nullable = nullable;
         self.primary_key = primary_key;
         self.unique = unique;
+    }
+
+    pub fn validate_value(&self, value: &Value) -> Result<(), crate::error::DbError> {
+        use crate::error::DbError;
+
+        if value.is_null() {
+            if !self.nullable {
+                return Err(DbError::invalid_operation(format!(
+                    "column '{}' is not nullable",
+                    self.name
+                )));
+            }
+            return Ok(());
+        }
+
+        let type_ok = match self.data_type {
+            DataType::Null => false,
+            DataType::Integer => value.is_integer(),
+            DataType::Float => value.is_float(),
+            DataType::Text => value.is_text(),
+            DataType::Blob => value.is_blob(),
+        };
+        if !type_ok {
+            return Err(DbError::type_mismatch(format!(
+                "column '{}' expects {}, got {}",
+                self.name,
+                self.data_type,
+                value.type_name()
+            )));
+        }
+
+        if let Some(check) = &self.check_constraint
+            && !evaluate_check_value(value, check)
+        {
+            return Err(DbError::invalid_operation(format!(
+                "check constraint failed for column '{}'",
+                self.name
+            )));
+        }
+
+        if let Some(allowed) = &self.allowed_values
+            && !allowed.contains(value)
+        {
+            return Err(DbError::invalid_operation(format!(
+                "value is not in the allowed list for column '{}'",
+                self.name
+            )));
+        }
+
+        Ok(())
+    }
+}
+
+fn evaluate_check_value(value: &Value, check: &CheckConstraint) -> bool {
+    match (&value, &check.value) {
+        (Value::Integer(a), Value::Integer(b)) => match check.op {
+            ComparisonOp::Eq => a.as_i64() == b.as_i64(),
+            ComparisonOp::NotEq => a.as_i64() != b.as_i64(),
+            ComparisonOp::Lt => a.as_i64() < b.as_i64(),
+            ComparisonOp::Lte => a.as_i64() <= b.as_i64(),
+            ComparisonOp::Gt => a.as_i64() > b.as_i64(),
+            ComparisonOp::Gte => a.as_i64() >= b.as_i64(),
+        },
+        (Value::Float(a), Value::Float(b)) => match check.op {
+            ComparisonOp::Eq => a.as_f64() == b.as_f64(),
+            ComparisonOp::NotEq => a.as_f64() != b.as_f64(),
+            ComparisonOp::Lt => a.as_f64() < b.as_f64(),
+            ComparisonOp::Lte => a.as_f64() <= b.as_f64(),
+            ComparisonOp::Gt => a.as_f64() > b.as_f64(),
+            ComparisonOp::Gte => a.as_f64() >= b.as_f64(),
+        },
+        (Value::Text(a), Value::Text(b)) => match check.op {
+            ComparisonOp::Eq => a.as_str() == b.as_str(),
+            ComparisonOp::NotEq => a.as_str() != b.as_str(),
+            ComparisonOp::Lt => a.as_str() < b.as_str(),
+            ComparisonOp::Lte => a.as_str() <= b.as_str(),
+            ComparisonOp::Gt => a.as_str() > b.as_str(),
+            ComparisonOp::Gte => a.as_str() >= b.as_str(),
+        },
+        (Value::Blob(a), Value::Blob(b)) => match check.op {
+            ComparisonOp::Eq => a.as_slice() == b.as_slice(),
+            ComparisonOp::NotEq => a.as_slice() != b.as_slice(),
+            _ => false,
+        },
+        _ => false,
     }
 }
