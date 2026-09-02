@@ -53,7 +53,13 @@ fn read_u64(cursor: &mut Cursor<&[u8]>) -> Result<u64, DbError> {
 }
 
 fn read_bytes(cursor: &mut Cursor<&[u8]>) -> Result<Vec<u8>, DbError> {
-    let len = read_u64(cursor)? as usize;
+    let len_u64 = read_u64(cursor)?;
+    let len = usize::try_from(len_u64).map_err(|_| {
+        DbError::corruption(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "length too large for platform",
+        ))
+    })?;
     if len > MAX_READ_BYTES {
         return Err(DbError::corruption(std::io::Error::new(
             std::io::ErrorKind::InvalidData,
@@ -298,7 +304,13 @@ pub fn decode_table_schema(cursor: &mut Cursor<&[u8]>) -> Result<TableSchema, Db
             e.to_string(),
         ))
     })?;
-    let col_count = read_u32(cursor)? as usize;
+    let col_count_u32 = read_u32(cursor)?;
+    let col_count = usize::try_from(col_count_u32).map_err(|_| {
+        DbError::corruption(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "column count too large for platform",
+        ))
+    })?;
     if col_count > 1024 {
         return Err(DbError::corruption(std::io::Error::new(
             std::io::ErrorKind::InvalidData,
@@ -326,7 +338,13 @@ pub fn encode_row(row: &Row) -> Vec<u8> {
 }
 
 pub fn decode_row(cursor: &mut Cursor<&[u8]>) -> Result<Row, DbError> {
-    let value_count = read_u32(cursor)? as usize;
+    let value_count_u32 = read_u32(cursor)?;
+    let value_count = usize::try_from(value_count_u32).map_err(|_| {
+        DbError::corruption(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "value count too large for platform",
+        ))
+    })?;
     if value_count > 1024 {
         return Err(DbError::corruption(std::io::Error::new(
             std::io::ErrorKind::InvalidData,
@@ -361,7 +379,13 @@ pub fn decode_table(cursor: &mut Cursor<&[u8]>) -> Result<Table, DbError> {
     let mut schema_cursor = Cursor::new(&schema_bytes[..]);
     let schema = decode_table_schema(&mut schema_cursor)?;
 
-    let row_count = read_u32(cursor)? as usize;
+    let row_count_u32 = read_u32(cursor)?;
+    let row_count = usize::try_from(row_count_u32).map_err(|_| {
+        DbError::corruption(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "row count too large for platform",
+        ))
+    })?;
     if row_count > 10_000_000 {
         return Err(DbError::corruption(std::io::Error::new(
             std::io::ErrorKind::InvalidData,
@@ -403,7 +427,13 @@ pub fn decode_catalog(data: &[u8]) -> Result<Catalog, DbError> {
 }
 
 fn decode_catalog_inner(cursor: &mut Cursor<&[u8]>) -> Result<Catalog, DbError> {
-    let table_count = read_u32(cursor)? as usize;
+    let table_count_u32 = read_u32(cursor)?;
+    let table_count = usize::try_from(table_count_u32).map_err(|_| {
+        DbError::corruption(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "table count too large for platform",
+        ))
+    })?;
     if table_count > 1024 {
         return Err(DbError::corruption(std::io::Error::new(
             std::io::ErrorKind::InvalidData,
