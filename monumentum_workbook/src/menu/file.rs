@@ -2,6 +2,7 @@ use crate::Workbook;
 use crate::WorkbookError;
 use monumentum_db::core::catalog::Catalog;
 use monumentum_db::store::storage::{FileStorage, InMemoryStorage, StorageEngine};
+use monumentum_query::formula::FunctionRegistry;
 use std::path::Path;
 
 const FILE_EXTENSION: &str = "monumentum";
@@ -18,7 +19,11 @@ impl Workbook<FileStorage> {
         validate_extension(path)?;
         let mut storage = FileStorage::open(path)?;
         let catalog = storage.load_catalog()?;
-        Ok(Self { catalog, storage })
+        Ok(Self {
+            catalog,
+            storage,
+            functions: FunctionRegistry::new(),
+        })
     }
 
     pub fn create_new(path: &Path) -> Result<Self, WorkbookError> {
@@ -29,7 +34,11 @@ impl Workbook<FileStorage> {
         let mut storage = FileStorage::open(path)?;
         let catalog = Catalog::new();
         storage.save_catalog(&catalog)?;
-        Ok(Self { catalog, storage })
+        Ok(Self {
+            catalog,
+            storage,
+            functions: FunctionRegistry::new(),
+        })
     }
 
     pub fn save(&mut self) -> Result<(), WorkbookError> {
@@ -78,13 +87,21 @@ impl Workbook<InMemoryStorage> {
     pub fn new_in_memory() -> Self {
         let storage = InMemoryStorage::new();
         let catalog = Catalog::new();
-        Self { catalog, storage }
+        Self {
+            catalog,
+            storage,
+            functions: FunctionRegistry::new(),
+        }
     }
 
     #[must_use]
     pub fn load_in_memory(catalog: Catalog) -> Self {
         let storage = InMemoryStorage::new();
-        Self { catalog, storage }
+        Self {
+            catalog,
+            storage,
+            functions: FunctionRegistry::new(),
+        }
     }
 
     pub fn save(&mut self) -> Result<(), WorkbookError> {
