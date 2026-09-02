@@ -6,6 +6,8 @@ use crate::formula::functions::FunctionRegistry;
 use monumentum_db::core::value::Value;
 use monumentum_db::types::{Float, Integer, Text};
 
+const MAX_RANGE_CELLS: usize = 100_000;
+
 pub fn evaluate(
     expr: &Expr,
     ctx: &dyn FormulaContext,
@@ -35,6 +37,11 @@ pub fn evaluate(
             for arg in args {
                 match arg {
                     Expr::Range(range) => {
+                        let cell_count = (range.end.row - range.start.row + 1) as usize
+                            * (range.end.col - range.start.col + 1) as usize;
+                        if cell_count > MAX_RANGE_CELLS {
+                            return Err(FormulaError::Eval("range too large".to_string()));
+                        }
                         for cell in range.iter() {
                             let v = ctx.get_cell_value(&cell)?;
                             arg_values.push(v);
@@ -278,13 +285,25 @@ fn mod_values(l: Value, r: Value) -> Result<Value, FormulaError> {
 
 fn pow_values(l: Value, r: Value) -> Result<Value, FormulaError> {
     match (l, r) {
-        (Value::Integer(a), Value::Integer(b)) if b.as_i64() >= 0 => {
-            let base = a.as_i64();
-            let exp = b.as_i64() as u32;
-            let result = base
-                .checked_pow(exp)
-                .ok_or_else(|| FormulaError::Eval("integer overflow".to_string()))?;
-            Ok(Value::Integer(Integer::new(result)))
+        (Value::Integer(a), Value::Integer(b)) => {
+            if b.as_i64() >= 0 {
+                let base = a.as_i64();
+                let exp = b.as_i64() as u32;
+                let result = base
+                    .checked_pow(exp)
+                    .ok_or_else(|| FormulaError::Eval("integer overflow".to_string()))?;
+                Ok(Value::Integer(Integer::new(result)))
+            } else {
+                let base = a.as_i64() as f64;
+                let exp = b.as_i64() as f64;
+                let result = base.powf(exp);
+                if !result.is_finite() {
+                    return Err(FormulaError::Eval("float result is not finite".to_string()));
+                }
+                Float::try_new(result)
+                    .map(Value::Float)
+                    .map_err(|e| FormulaError::Eval(e.to_string()))
+            }
         }
         (Value::Float(a), Value::Float(b)) => {
             let result = a.as_f64().powf(b.as_f64());
