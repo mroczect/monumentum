@@ -170,6 +170,10 @@ impl ColumnDef {
     pub fn validate_value(&self, value: &Value) -> Result<(), crate::error::DbError> {
         use crate::error::DbError;
 
+        if value.is_formula() {
+            return Ok(());
+        }
+
         if value.is_null() {
             if !self.nullable {
                 return Err(DbError::invalid_operation(format!(
