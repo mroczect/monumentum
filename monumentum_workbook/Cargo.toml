@@ -1,0 +1,20 @@
+[package]
+name = "monumentum_workbook"
+description = "Workbook layer for Monumentum DB"
+readme = "readme.md"
+version = "0.1.0"
+authors.workspace = true
+categories.workspace = true
+documentation.workspace = true
+edition.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+monumentum_db = {path = "../monumentum_db", version = "0.1.0" }
+
+[lints]
+workspace = true
