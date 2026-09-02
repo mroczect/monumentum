@@ -17,7 +17,6 @@ rust-version.workspace = true
 monumentum_db = {path = "../monumentum_db", version = "0.1.0" }
 monumentum_query = {path = "../monumentum_query", version = "0.1.0" }
 
-
 [dev-dependencies]
 tempfile = "3"
 proptest = "1"
