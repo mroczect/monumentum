@@ -36,6 +36,11 @@ impl Table {
     }
 
     #[must_use]
+    pub fn schema_mut(&mut self) -> &mut TableSchema {
+        &mut self.schema
+    }
+
+    #[must_use]
     pub fn rows(&self) -> &[Row] {
         &self.rows
     }
