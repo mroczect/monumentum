@@ -90,4 +90,39 @@ impl<S: StorageEngine> Workbook<S> {
         col_def.validate_value(value)?;
         Ok(())
     }
+
+    pub fn protect_sheet(&mut self, sheet: &str) -> Result<(), WorkbookError> {
+        let table = self.catalog.get_table_mut(sheet).ok_or_else(|| {
+            WorkbookError::Db(monumentum_db::error::DbError::table_not_found(sheet).to_string())
+        })?;
+        table.set_read_only(true);
+        Ok(())
+    }
+
+    pub fn unprotect_sheet(&mut self, sheet: &str) -> Result<(), WorkbookError> {
+        let table = self.catalog.get_table_mut(sheet).ok_or_else(|| {
+            WorkbookError::Db(monumentum_db::error::DbError::table_not_found(sheet).to_string())
+        })?;
+        table.set_read_only(false);
+        Ok(())
+    }
+
+    pub fn is_sheet_protected(&self, sheet: &str) -> Result<bool, WorkbookError> {
+        let table = self.catalog.get_table(sheet).ok_or_else(|| {
+            WorkbookError::Db(monumentum_db::error::DbError::table_not_found(sheet).to_string())
+        })?;
+        Ok(table.is_read_only())
+    }
+
+    pub(crate) fn ensure_writable(&self, sheet: &str) -> Result<(), WorkbookError> {
+        let table = self.catalog.get_table(sheet).ok_or_else(|| {
+            WorkbookError::Db(monumentum_db::error::DbError::table_not_found(sheet).to_string())
+        })?;
+        if table.is_read_only() {
+            return Err(WorkbookError::Db(
+                monumentum_db::error::DbError::invalid_operation("sheet is protected").to_string(),
+            ));
+        }
+        Ok(())
+    }
 }

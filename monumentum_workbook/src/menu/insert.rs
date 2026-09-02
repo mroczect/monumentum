@@ -13,6 +13,7 @@ impl<S: StorageEngine> Workbook<S> {
         index: usize,
         values: Vec<Value>,
     ) -> Result<(), WorkbookError> {
+        self.ensure_writable(sheet)?;
         let table = self.catalog.get_table_mut(sheet).ok_or_else(|| {
             WorkbookError::Db(monumentum_db::error::DbError::table_not_found(sheet).to_string())
         })?;
@@ -41,6 +42,7 @@ impl<S: StorageEngine> Workbook<S> {
         index: usize,
         col_def: &ColumnDef,
     ) -> Result<(), WorkbookError> {
+        self.ensure_writable(sheet)?;
         let table = self.catalog.get_table(sheet).ok_or_else(|| {
             WorkbookError::Db(monumentum_db::error::DbError::table_not_found(sheet).to_string())
         })?;
@@ -77,6 +79,7 @@ impl<S: StorageEngine> Workbook<S> {
     }
 
     pub fn delete_column(&mut self, sheet: &str, index: usize) -> Result<(), WorkbookError> {
+        self.ensure_writable(sheet)?;
         let table = self.catalog.get_table(sheet).ok_or_else(|| {
             WorkbookError::Db(monumentum_db::error::DbError::table_not_found(sheet).to_string())
         })?;

@@ -26,6 +26,7 @@ impl<S: StorageEngine> Workbook<S> {
         col_idx: usize,
         value: Value,
     ) -> Result<(), WorkbookError> {
+        self.ensure_writable(sheet)?;
         let table = self.catalog.get_table_mut(sheet).ok_or_else(|| {
             WorkbookError::Db(monumentum_db::error::DbError::table_not_found(sheet).to_string())
         })?;
@@ -65,6 +66,7 @@ impl<S: StorageEngine> Workbook<S> {
         old_value: &Value,
         new_value: &Value,
     ) -> Result<usize, WorkbookError> {
+        self.ensure_writable(sheet)?;
         let table = self.catalog.get_table_mut(sheet).ok_or_else(|| {
             WorkbookError::Db(monumentum_db::error::DbError::table_not_found(sheet).to_string())
         })?;
