@@ -2,7 +2,7 @@ use crate::core::catalog::Catalog;
 use crate::core::table::Table;
 use crate::error::DbError;
 use crate::store::file::write_all_atomic;
-use crate::store::serialize::{decode_catalog, encode_catalog};
+use crate::store::serde::*;
 use crate::store::wal::Wal;
 use std::path::{Path, PathBuf};
 
