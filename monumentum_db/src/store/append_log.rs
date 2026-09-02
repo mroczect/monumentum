@@ -5,7 +5,7 @@ use std::io::{Read, Seek, SeekFrom};
 
 const MAGIC: u32 = 0x4D4F4E55;
 const VERSION: u32 = 1;
-const HEADER_SIZE: usize = 20; // magic u32 + version u32 + length u64 + checksum u32
+const HEADER_SIZE: usize = 20;
 const MAX_RECORD_SIZE: usize = 64 * 1024 * 1024;
 
 fn crc32(data: &[u8]) -> u32 {
@@ -68,28 +68,92 @@ pub fn read_records(file: &mut File) -> Result<Vec<Vec<u8>>, DbError> {
             }
         }
 
-        let magic = u32::from_le_bytes(header_buf[0..4].try_into().unwrap());
+        let magic = u32::from_le_bytes(
+            header_buf
+                .get(0..4)
+                .ok_or_else(|| {
+                    DbError::corruption(std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        "header too short",
+                    ))
+                })?
+                .try_into()
+                .map_err(|_| {
+                    DbError::corruption(std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        "invalid header slice",
+                    ))
+                })?,
+        );
         if magic != MAGIC {
             return Err(DbError::corruption(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
                 "invalid magic in log header",
             )));
         }
-        let version = u32::from_le_bytes(header_buf[4..8].try_into().unwrap());
+        let version = u32::from_le_bytes(
+            header_buf
+                .get(4..8)
+                .ok_or_else(|| {
+                    DbError::corruption(std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        "header too short",
+                    ))
+                })?
+                .try_into()
+                .map_err(|_| {
+                    DbError::corruption(std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        "invalid header slice",
+                    ))
+                })?,
+        );
         if version != VERSION {
             return Err(DbError::corruption(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
                 format!("unsupported log version {version}"),
             )));
         }
-        let length = u64::from_le_bytes(header_buf[8..16].try_into().unwrap()) as usize;
+        let length = u64::from_le_bytes(
+            header_buf
+                .get(8..16)
+                .ok_or_else(|| {
+                    DbError::corruption(std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        "header too short",
+                    ))
+                })?
+                .try_into()
+                .map_err(|_| {
+                    DbError::corruption(std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        "invalid header slice",
+                    ))
+                })?,
+        ) as usize;
         if length > MAX_RECORD_SIZE {
             return Err(DbError::corruption(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
                 "record length exceeds maximum allowed",
             )));
         }
-        let expected_checksum = u32::from_le_bytes(header_buf[16..20].try_into().unwrap());
+        let expected_checksum = u32::from_le_bytes(
+            header_buf
+                .get(16..20)
+                .ok_or_else(|| {
+                    DbError::corruption(std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        "header too short",
+                    ))
+                })?
+                .try_into()
+                .map_err(|_| {
+                    DbError::corruption(std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        "invalid header slice",
+                    ))
+                })?,
+        );
 
         let mut payload = vec![0u8; length];
         let mut bytes_read = 0;

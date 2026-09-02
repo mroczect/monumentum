@@ -1,9 +1,9 @@
-use crate::core::schema::column::{ColumnDef, DataType};
+use crate::core::schema::column::{ColumnDef, ComparisonOp, DataType};
 use crate::core::value::Value;
 use crate::error::DbError;
 use std::collections::HashSet;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct TableSchema {
     name: String,
     columns: Vec<ColumnDef>,
@@ -96,7 +96,54 @@ impl TableSchema {
                     val.type_name()
                 )));
             }
+
+            if let Some(check) = col.check_constraint()
+                && !evaluate_check(val, check)
+            {
+                return Err(DbError::invalid_operation(format!(
+                    "check constraint failed for column '{}': {:?} {:?} {:?}",
+                    col.name(),
+                    check.column,
+                    check.op,
+                    check.value
+                )));
+            }
         }
         Ok(())
+    }
+}
+
+fn evaluate_check(val: &Value, check: &crate::core::schema::column::CheckConstraint) -> bool {
+    match (&val, &check.value) {
+        (Value::Integer(a), Value::Integer(b)) => match check.op {
+            ComparisonOp::Eq => a.as_i64() == b.as_i64(),
+            ComparisonOp::NotEq => a.as_i64() != b.as_i64(),
+            ComparisonOp::Lt => a.as_i64() < b.as_i64(),
+            ComparisonOp::Lte => a.as_i64() <= b.as_i64(),
+            ComparisonOp::Gt => a.as_i64() > b.as_i64(),
+            ComparisonOp::Gte => a.as_i64() >= b.as_i64(),
+        },
+        (Value::Float(a), Value::Float(b)) => match check.op {
+            ComparisonOp::Eq => a.as_f64() == b.as_f64(),
+            ComparisonOp::NotEq => a.as_f64() != b.as_f64(),
+            ComparisonOp::Lt => a.as_f64() < b.as_f64(),
+            ComparisonOp::Lte => a.as_f64() <= b.as_f64(),
+            ComparisonOp::Gt => a.as_f64() > b.as_f64(),
+            ComparisonOp::Gte => a.as_f64() >= b.as_f64(),
+        },
+        (Value::Text(a), Value::Text(b)) => match check.op {
+            ComparisonOp::Eq => a.as_str() == b.as_str(),
+            ComparisonOp::NotEq => a.as_str() != b.as_str(),
+            ComparisonOp::Lt => a.as_str() < b.as_str(),
+            ComparisonOp::Lte => a.as_str() <= b.as_str(),
+            ComparisonOp::Gt => a.as_str() > b.as_str(),
+            ComparisonOp::Gte => a.as_str() >= b.as_str(),
+        },
+        (Value::Blob(a), Value::Blob(b)) => match check.op {
+            ComparisonOp::Eq => a.as_slice() == b.as_slice(),
+            ComparisonOp::NotEq => a.as_slice() != b.as_slice(),
+            _ => false,
+        },
+        _ => false,
     }
 }
