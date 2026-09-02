@@ -2,6 +2,8 @@ use crate::error::DbError;
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
+static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 #[cfg(unix)]
 use std::os::unix::fs::OpenOptionsExt;
@@ -77,8 +79,14 @@ fn unique_tmp_path(parent: &Path, base_name: &str) -> PathBuf {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_nanos();
-        let bytes = now.to_le_bytes();
-        random_bytes[..16].copy_from_slice(&bytes);
+        let counter = TEMP_COUNTER.fetch_add(1, Ordering::SeqCst);
+        let mut bytes = [0u8; 24];
+        bytes[..16].copy_from_slice(&now.to_le_bytes());
+        bytes[16..].copy_from_slice(&counter.to_le_bytes());
+        for byte in &mut bytes {
+            *byte ^= (*byte).wrapping_mul(31);
+        }
+        random_bytes.copy_from_slice(&bytes[..16]);
     }
     let random_hex: String = random_bytes.iter().map(|b| format!("{b:02x}")).collect();
     parent.join(format!(
@@ -88,7 +96,6 @@ fn unique_tmp_path(parent: &Path, base_name: &str) -> PathBuf {
         random_hex
     ))
 }
-
 pub fn append_to_file(file: &mut File, data: &[u8]) -> Result<(), DbError> {
     file.write_all(data)?;
     Ok(())

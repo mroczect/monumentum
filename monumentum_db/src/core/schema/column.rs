@@ -162,9 +162,15 @@ impl ColumnDef {
     }
 
     pub(crate) fn set_flags_raw(&mut self, nullable: bool, primary_key: bool, unique: bool) {
-        self.nullable = nullable;
-        self.primary_key = primary_key;
-        self.unique = unique;
+        if primary_key {
+            self.primary_key = true;
+            self.nullable = false;
+            self.unique = true;
+        } else {
+            self.primary_key = false;
+            self.nullable = nullable;
+            self.unique = unique;
+        }
     }
 
     pub fn validate_value(&self, value: &Value) -> Result<(), crate::error::DbError> {

@@ -73,12 +73,18 @@ impl FileStorage {
         };
 
         let records = wal.read_all()?;
+        let mut last_seq = current_seq;
         for record in records {
             let (seq, cat) = decode_snapshot(&record)?;
-            if seq > current_seq {
-                current_seq = seq;
-                catalog = cat;
+            if seq <= last_seq {
+                return Err(DbError::corruption(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "WAL sequence numbers are not strictly increasing",
+                )));
             }
+            last_seq = seq;
+            current_seq = seq;
+            catalog = cat;
         }
 
         Ok(Self {
@@ -104,14 +110,20 @@ impl FileStorage {
         let data = std::fs::read(&self.data_path)?;
         let (seq, cat) = decode_snapshot(&data)?;
         let records = self.wal.read_all()?;
+        let mut last_seq = self.current_seq;
         let mut current_seq = seq;
         let mut catalog = cat;
         for record in records {
-            let (seq, cat) = decode_snapshot(&record)?;
-            if seq > current_seq {
-                current_seq = seq;
-                catalog = cat;
+            let (record_seq, record_cat) = decode_snapshot(&record)?;
+            if record_seq <= last_seq {
+                return Err(DbError::corruption(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "WAL sequence numbers are not strictly increasing",
+                )));
             }
+            last_seq = record_seq;
+            current_seq = record_seq;
+            catalog = record_cat;
         }
         self.catalog = catalog.clone();
         self.current_seq = current_seq;

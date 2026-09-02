@@ -147,7 +147,13 @@ pub(crate) fn decode_value(cursor: &mut Cursor<&[u8]>) -> Result<Value, DbError>
         TAG_NULL => Ok(Value::Null),
         TAG_INTEGER => {
             let raw = read_u64(cursor)?;
-            Ok(Value::Integer(Integer::new(raw as i64)))
+            let signed = i64::try_from(raw).map_err(|_| {
+                DbError::corruption(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "integer value out of range",
+                ))
+            })?;
+            Ok(Value::Integer(Integer::new(signed)))
         }
         TAG_FLOAT => {
             let mut b = [0u8; 8];
