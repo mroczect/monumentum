@@ -105,6 +105,9 @@ version = "0.1.0"
 [[package]]
 name = "monumentum_query"
 version = "0.1.0"
+dependencies = [
+ "monumentum_db",
+]
 
 [[package]]
 name = "monumentum_workbook"
