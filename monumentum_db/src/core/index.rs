@@ -30,7 +30,7 @@ impl IndexKey {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub(crate) struct HashIndex {
     map: HashMap<IndexKey, Vec<usize>>,
 }
