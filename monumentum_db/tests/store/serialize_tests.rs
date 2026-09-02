@@ -4,7 +4,7 @@ use monumentum_db::core::schema::column::{ColumnDef, DataType};
 use monumentum_db::core::schema::table_schema::TableSchema;
 use monumentum_db::core::value::Value;
 use monumentum_db::error::DbError;
-use monumentum_db::store::serialize::{decode_catalog, encode_catalog};
+use monumentum_db::store::serde::{decode_catalog, encode_catalog};
 
 fn create_schema_with_all_types() -> Result<TableSchema, DbError> {
     let mut id_col = ColumnDef::new("id", DataType::Integer);
