@@ -69,12 +69,7 @@ impl<S: StorageEngine> Workbook<S> {
             new_table.insert(row)?;
         }
 
-        self.catalog.drop_table(sheet)?;
-        self.catalog.create_table(new_table.schema().clone())?;
-        let table_mut = self.catalog.get_table_mut(sheet).ok_or_else(|| {
-            WorkbookError::Db(monumentum_db::error::DbError::table_not_found(sheet).to_string())
-        })?;
-        table_mut.replace_rows(new_table.rows().to_vec())?;
+        self.catalog.replace_table(sheet, new_table)?;
         Ok(())
     }
 
@@ -111,12 +106,7 @@ impl<S: StorageEngine> Workbook<S> {
             new_table.insert(row)?;
         }
 
-        self.catalog.drop_table(sheet)?;
-        self.catalog.create_table(new_table.schema().clone())?;
-        let table_mut = self.catalog.get_table_mut(sheet).ok_or_else(|| {
-            WorkbookError::Db(monumentum_db::error::DbError::table_not_found(sheet).to_string())
-        })?;
-        table_mut.replace_rows(new_table.rows().to_vec())?;
+        self.catalog.replace_table(sheet, new_table)?;
         Ok(())
     }
 }
