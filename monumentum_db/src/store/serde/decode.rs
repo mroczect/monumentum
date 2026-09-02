@@ -203,7 +203,7 @@ pub fn decode_table(cursor: &mut Cursor<&[u8]>) -> Result<Table, DbError> {
         let mut row_cursor = Cursor::new(&row_bytes[..]);
         let row = decode_row(&mut row_cursor)?;
         ensure_fully_consumed(&row_cursor)?;
-        table.insert(row)?;
+        table.insert(row).map_err(DbError::corruption)?;
     }
     ensure_fully_consumed(cursor)?;
     Ok(table)
