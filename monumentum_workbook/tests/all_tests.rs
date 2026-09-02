@@ -1,1 +1,3 @@
-mod error_tests;
+#![allow(unused_crate_dependencies)]
+
+mod common;
