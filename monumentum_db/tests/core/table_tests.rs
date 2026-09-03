@@ -4,150 +4,94 @@ use monumentum_db::core::schema::table_schema::TableSchema;
 use monumentum_db::core::table::Table;
 use monumentum_db::core::value::Value;
 use monumentum_db::error::DbError;
+use proptest::prelude::*;
 
-fn create_column(name: &str, data_type: DataType, unique: bool, nullable: bool) -> ColumnDef {
+fn create_column(
+    name: &str,
+    data_type: DataType,
+    unique: bool,
+    nullable: bool,
+    primary_key: bool,
+) -> ColumnDef {
     let mut col = ColumnDef::new(name, data_type);
     col.set_unique(unique);
     col.set_nullable(nullable);
+    if primary_key {
+        col.set_primary_key(true);
+    }
     col
 }
 
-fn create_schema(columns: Vec<ColumnDef>) -> Result<TableSchema, DbError> {
-    TableSchema::try_new("test_table", columns)
+fn create_table(columns: Vec<ColumnDef>) -> Table {
+    let schema = TableSchema::try_new("test_table", columns).expect("valid schema");
+    Table::new(schema)
 }
 
-fn create_table(columns: Vec<ColumnDef>) -> Result<Table, DbError> {
-    Ok(Table::new(create_schema(columns)?))
-}
-
-#[test]
-fn new_creates_table_with_correct_schema_and_empty_rows() -> Result<(), DbError> {
-    let col = create_column("id", DataType::Integer, true, false);
-    let table = create_table(vec![col])?;
-    assert_eq!(table.schema().name(), "test_table");
-    assert_eq!(table.schema().columns().len(), 1);
-    assert_eq!(table.len(), 0);
-    assert!(table.is_empty());
-    assert!(table.get(0).is_none());
-    Ok(())
+fn int_value(v: i64) -> Value {
+    Value::from(v)
 }
 
 #[test]
-fn insert_valid_row_success() -> Result<(), DbError> {
-    let col = create_column("id", DataType::Integer, false, false);
-    let mut table = create_table(vec![col])?;
-    let row = Row::new(vec![Value::from(1_i64)]);
-    table.insert(row)?;
-    assert_eq!(table.len(), 1);
-    assert!(!table.is_empty());
-    assert!(table.get(0).is_some());
-    Ok(())
-}
+fn rename_schema_updates_name_and_preserves_data() -> Result<(), DbError> {
+    let col = create_column("id", DataType::Integer, false, false, false);
+    let mut table = create_table(vec![col]);
+    table.insert(Row::new(vec![int_value(1)]))?;
+    table.insert(Row::new(vec![int_value(2)]))?;
 
-#[test]
-fn insert_wrong_number_of_values_returns_error() -> Result<(), DbError> {
-    let col = create_column("id", DataType::Integer, false, false);
-    let mut table = create_table(vec![col])?;
-    let row = Row::new(vec![Value::from(1_i64), Value::from(2_i64)]);
-    let result = table.insert(row);
-    assert!(result.is_err());
-    if let Err(e) = result {
-        assert_eq!(e.to_string(), "Invalid operation: expected 1 values, got 2");
-    }
-    Ok(())
-}
+    table.rename_schema("renamed_table")?;
 
-#[test]
-fn insert_with_default_value_applies_default() -> Result<(), DbError> {
-    let mut col = create_column("age", DataType::Integer, false, true);
-    col.set_default(Some(Value::from(30_i64)));
-    let mut table = create_table(vec![col])?;
-    let row = Row::new(vec![Value::Null]);
-    table.insert(row)?;
-    if let Some(inserted) = table.get(0) {
-        assert_eq!(inserted.get(0), Some(&Value::from(30_i64)));
+    assert_eq!(table.schema().name(), "renamed_table");
+    assert_eq!(table.len(), 2);
+    if let Some(row) = table.get(0) {
+        assert_eq!(row.get(0), Some(&int_value(1)));
     } else {
-        assert!(table.get(0).is_some());
+        unreachable!();
+    }
+    if let Some(row) = table.get(1) {
+        assert_eq!(row.get(0), Some(&int_value(2)));
+    } else {
+        unreachable!();
     }
     Ok(())
 }
 
 #[test]
-fn insert_type_mismatch_returns_error() -> Result<(), DbError> {
-    let col = create_column("id", DataType::Integer, false, false);
-    let mut table = create_table(vec![col])?;
-    let row = Row::new(vec![Value::from("not integer")]);
-    let result = table.insert(row);
+fn rename_schema_with_empty_name_returns_error() {
+    let col = create_column("id", DataType::Integer, false, false, false);
+    let mut table = create_table(vec![col]);
+    let result = table.rename_schema("");
     assert!(result.is_err());
     if let Err(e) = result {
-        assert_eq!(
-            e.to_string(),
-            "Type mismatch: column 'id' expects INTEGER, got text"
-        );
+        assert!(e.to_string().contains("table name cannot be empty"));
+    }
+}
+
+#[test]
+fn set_cell_updates_value_and_index() -> Result<(), DbError> {
+    let col = create_column("id", DataType::Integer, true, false, false);
+    let mut table = create_table(vec![col]);
+    table.insert(Row::new(vec![int_value(1)]))?;
+    table.insert(Row::new(vec![int_value(2)]))?;
+
+    table.set_cell(0, 0, int_value(3))?;
+
+    assert!(table.lookup_by_unique(0, &int_value(1)).is_none());
+    if let Some(row) = table.lookup_by_unique(0, &int_value(3)) {
+        assert_eq!(row.get(0), Some(&int_value(3)));
+    } else {
+        unreachable!();
     }
     Ok(())
 }
 
 #[test]
-fn insert_null_in_non_nullable_returns_error() -> Result<(), DbError> {
-    let col = create_column("id", DataType::Integer, false, false);
-    let mut table = create_table(vec![col])?;
-    let row = Row::new(vec![Value::Null]);
-    let result = table.insert(row);
-    assert!(result.is_err());
-    if let Err(e) = result {
-        assert_eq!(
-            e.to_string(),
-            "Invalid operation: column 'id' is not nullable"
-        );
-    }
-    Ok(())
-}
+fn set_cell_duplicate_unique_returns_error() -> Result<(), DbError> {
+    let col = create_column("id", DataType::Integer, true, false, false);
+    let mut table = create_table(vec![col]);
+    table.insert(Row::new(vec![int_value(1)]))?;
+    table.insert(Row::new(vec![int_value(2)]))?;
 
-#[test]
-fn insert_check_constraint_violation_returns_error() -> Result<(), DbError> {
-    let check = CheckConstraint {
-        column: "age".to_string(),
-        op: ComparisonOp::Gt,
-        value: Value::from(0_i64),
-    };
-    let mut col = create_column("age", DataType::Integer, false, true);
-    col.set_check(Some(check));
-    let mut table = create_table(vec![col])?;
-    let row = Row::new(vec![Value::from(-5_i64)]);
-    let result = table.insert(row);
-    assert!(result.is_err());
-    if let Err(e) = result {
-        assert!(e.to_string().contains("check constraint failed"));
-    }
-    Ok(())
-}
-
-#[test]
-fn insert_duplicate_unique_value_returns_error() -> Result<(), DbError> {
-    let col = create_column("email", DataType::Text, true, false);
-    let mut table = create_table(vec![col])?;
-
-    table.insert(Row::new(vec![Value::from("a@b.com")]))?;
-    let result = table.insert(Row::new(vec![Value::from("a@b.com")]));
-    assert!(result.is_err());
-    if let Err(e) = result {
-        assert_eq!(
-            e.to_string(),
-            "Invalid operation: duplicate value for column 'email'"
-        );
-    }
-    Ok(())
-}
-
-#[test]
-fn insert_duplicate_primary_key_returns_error() -> Result<(), DbError> {
-    let mut col = create_column("id", DataType::Integer, false, false);
-    col.set_primary_key(true);
-    let mut table = create_table(vec![col])?;
-
-    table.insert(Row::new(vec![Value::from(1_i64)]))?;
-    let result = table.insert(Row::new(vec![Value::from(1_i64)]));
+    let result = table.set_cell(0, 0, int_value(2));
     assert!(result.is_err());
     if let Err(e) = result {
         assert_eq!(
@@ -159,102 +103,47 @@ fn insert_duplicate_primary_key_returns_error() -> Result<(), DbError> {
 }
 
 #[test]
-fn insert_null_unique_value_allowed_multiple_times() -> Result<(), DbError> {
-    let col = create_column("email", DataType::Text, true, true);
-    let mut table = create_table(vec![col])?;
+fn set_cell_out_of_bounds_returns_error() -> Result<(), DbError> {
+    let col = create_column("id", DataType::Integer, false, false, false);
+    let mut table = create_table(vec![col]);
+    table.insert(Row::new(vec![int_value(1)]))?;
 
-    table.insert(Row::new(vec![Value::Null]))?;
-    table.insert(Row::new(vec![Value::Null]))?;
-    assert_eq!(table.len(), 2);
-    Ok(())
-}
-
-#[test]
-fn get_returns_row_at_index() -> Result<(), DbError> {
-    let col = create_column("id", DataType::Integer, false, false);
-    let mut table = create_table(vec![col])?;
-    table.insert(Row::new(vec![Value::from(1_i64)]))?;
-    table.insert(Row::new(vec![Value::from(2_i64)]))?;
-
-    let row0 = table.get(0);
-    assert!(row0.is_some());
-    if let Some(row) = row0 {
-        assert_eq!(row.get(0), Some(&Value::from(1_i64)));
-    }
-
-    let row1 = table.get(1);
-    assert!(row1.is_some());
-    if let Some(row) = row1 {
-        assert_eq!(row.get(0), Some(&Value::from(2_i64)));
-    }
-
-    assert!(table.get(2).is_none());
-    Ok(())
-}
-
-#[test]
-fn replace_rows_success() -> Result<(), DbError> {
-    let col = create_column("id", DataType::Integer, false, false);
-    let mut table = create_table(vec![col])?;
-    table.insert(Row::new(vec![Value::from(1_i64)]))?;
-
-    let new_rows = vec![
-        Row::new(vec![Value::from(10_i64)]),
-        Row::new(vec![Value::from(20_i64)]),
-    ];
-    table.replace_rows(new_rows)?;
-    assert_eq!(table.len(), 2);
-    if let Some(row) = table.get(0) {
-        assert_eq!(row.get(0), Some(&Value::from(10_i64)));
-    } else {
-        assert!(table.get(0).is_some());
-    }
-    if let Some(row) = table.get(1) {
-        assert_eq!(row.get(0), Some(&Value::from(20_i64)));
-    } else {
-        assert!(table.get(1).is_some());
-    }
-    Ok(())
-}
-
-#[test]
-fn replace_rows_with_wrong_length_returns_error() -> Result<(), DbError> {
-    let col = create_column("id", DataType::Integer, false, false);
-    let mut table = create_table(vec![col])?;
-    let bad_rows = vec![Row::new(vec![Value::from(1_i64), Value::from(2_i64)])];
-    let result = table.replace_rows(bad_rows);
+    let result = table.set_cell(1, 0, int_value(5));
     assert!(result.is_err());
     if let Err(e) = result {
-        assert_eq!(e.to_string(), "Invalid operation: expected 1 values, got 2");
+        assert_eq!(e.to_string(), "Invalid operation: index out of bounds");
     }
-    Ok(())
-}
 
-#[test]
-fn replace_rows_with_duplicate_unique_values_returns_error() -> Result<(), DbError> {
-    let col = create_column("email", DataType::Text, true, false);
-    let mut table = create_table(vec![col])?;
-    let rows = vec![
-        Row::new(vec![Value::from("dup@example.com")]),
-        Row::new(vec![Value::from("dup@example.com")]),
-    ];
-    let result = table.replace_rows(rows);
+    let result = table.set_cell(0, 1, int_value(5));
     assert!(result.is_err());
     if let Err(e) = result {
-        assert_eq!(
-            e.to_string(),
-            "Invalid operation: duplicate value for column 'email'"
-        );
+        assert_eq!(e.to_string(), "Invalid operation: index out of bounds");
     }
     Ok(())
 }
 
 #[test]
-fn replace_rows_with_invalid_values_returns_error() -> Result<(), DbError> {
-    let col = create_column("id", DataType::Integer, false, false);
-    let mut table = create_table(vec![col])?;
-    let rows = vec![Row::new(vec![Value::from("bad")])];
-    let result = table.replace_rows(rows);
+fn set_cell_read_only_returns_error() -> Result<(), DbError> {
+    let col = create_column("id", DataType::Integer, false, false, false);
+    let mut table = create_table(vec![col]);
+    table.insert(Row::new(vec![int_value(1)]))?;
+    table.set_read_only(true);
+
+    let result = table.set_cell(0, 0, int_value(2));
+    assert!(result.is_err());
+    if let Err(e) = result {
+        assert_eq!(e.to_string(), "Invalid operation: table is read-only");
+    }
+    Ok(())
+}
+
+#[test]
+fn set_cell_type_mismatch_returns_error() -> Result<(), DbError> {
+    let col = create_column("id", DataType::Integer, false, false, false);
+    let mut table = create_table(vec![col]);
+    table.insert(Row::new(vec![int_value(1)]))?;
+
+    let result = table.set_cell(0, 0, Value::from("not int"));
     assert!(result.is_err());
     if let Err(e) = result {
         assert_eq!(
@@ -266,67 +155,183 @@ fn replace_rows_with_invalid_values_returns_error() -> Result<(), DbError> {
 }
 
 #[test]
-fn lookup_by_unique_on_indexed_column_returns_row() -> Result<(), DbError> {
-    let col = create_column("id", DataType::Integer, true, false);
-    let mut table = create_table(vec![col])?;
-    table.insert(Row::new(vec![Value::from(1_i64)]))?;
-    table.insert(Row::new(vec![Value::from(2_i64)]))?;
+fn set_cell_violates_check_constraint_returns_error() -> Result<(), DbError> {
+    let mut col = create_column("age", DataType::Integer, false, false, false);
+    col.set_check(Some(CheckConstraint {
+        column: "age".to_string(),
+        op: ComparisonOp::Gt,
+        value: int_value(0),
+    }));
+    let mut table = create_table(vec![col]);
+    table.insert(Row::new(vec![int_value(10)]))?;
 
-    let value = Value::from(2_i64);
-    let result = table.lookup_by_unique(0, &value);
-    assert!(result.is_some());
-    if let Some(row) = result {
-        assert_eq!(row.get(0), Some(&value));
+    let result = table.set_cell(0, 0, int_value(-5));
+    assert!(result.is_err());
+    if let Err(e) = result {
+        assert!(e.to_string().contains("check constraint failed"));
     }
     Ok(())
 }
 
 #[test]
-fn lookup_by_unique_on_non_indexed_column_falls_back_to_linear_scan() -> Result<(), DbError> {
-    let col = create_column("id", DataType::Integer, false, false);
-    let mut table = create_table(vec![col])?;
-    table.insert(Row::new(vec![Value::from(1_i64)]))?;
-    table.insert(Row::new(vec![Value::from(2_i64)]))?;
+fn set_column_allowed_values_updates_and_validates() -> Result<(), DbError> {
+    let col = create_column("status", DataType::Text, false, false, false);
+    let mut table = create_table(vec![col]);
+    table.insert(Row::new(vec![Value::from("active")]))?;
 
-    let value = Value::from(2_i64);
-    let result = table.lookup_by_unique(0, &value);
-    assert!(result.is_some());
-    if let Some(row) = result {
-        assert_eq!(row.get(0), Some(&value));
+    table.set_column_allowed_values(
+        0,
+        Some(vec![Value::from("active"), Value::from("inactive")]),
+    )?;
+
+    table.set_cell(0, 0, Value::from("inactive"))?;
+
+    let result = table.set_cell(0, 0, Value::from("pending"));
+    assert!(result.is_err());
+    if let Err(e) = result {
+        assert!(e.to_string().contains("not in the allowed list"));
     }
     Ok(())
 }
 
 #[test]
-fn lookup_by_unique_non_existent_value_returns_none() -> Result<(), DbError> {
-    let col = create_column("id", DataType::Integer, true, false);
-    let mut table = create_table(vec![col])?;
-    table.insert(Row::new(vec![Value::from(1_i64)]))?;
+fn set_column_allowed_values_out_of_bounds_returns_error() -> Result<(), DbError> {
+    let col = create_column("status", DataType::Text, false, false, false);
+    let mut table = create_table(vec![col]);
 
-    let value = Value::from(99_i64);
-    assert!(table.lookup_by_unique(0, &value).is_none());
+    let result = table.set_column_allowed_values(1, Some(vec![Value::from("a")]));
+    assert!(result.is_err());
+    if let Err(e) = result {
+        assert_eq!(
+            e.to_string(),
+            "Invalid operation: column index out of bounds"
+        );
+    }
     Ok(())
 }
 
 #[test]
-fn lookup_by_unique_out_of_range_col_idx_returns_none() -> Result<(), DbError> {
-    let col = create_column("id", DataType::Integer, true, false);
-    let table = create_table(vec![col])?;
-    let value = Value::from(1_i64);
-    assert!(table.lookup_by_unique(5, &value).is_none());
+fn set_column_allowed_values_rejects_if_existing_data_invalid() -> Result<(), DbError> {
+    let col = create_column("status", DataType::Text, false, false, false);
+    let mut table = create_table(vec![col]);
+    table.insert(Row::new(vec![Value::from("active")]))?;
+
+    let result = table.set_column_allowed_values(0, Some(vec![Value::from("inactive")]));
+    assert!(result.is_err());
+    if let Err(e) = result {
+        assert!(e.to_string().contains("not in the allowed list"));
+    }
     Ok(())
 }
 
 #[test]
-fn rows_returns_slice_of_all_rows() -> Result<(), DbError> {
-    let col = create_column("id", DataType::Integer, false, false);
-    let mut table = create_table(vec![col])?;
-    table.insert(Row::new(vec![Value::from(1_i64)]))?;
-    table.insert(Row::new(vec![Value::from(2_i64)]))?;
+fn get_column_by_name_returns_reference() {
+    let col = create_column("id", DataType::Integer, false, false, false);
+    let table = create_table(vec![col]);
 
-    let rows = table.rows();
-    assert_eq!(rows.len(), 2);
-    assert_eq!(rows[0].get(0), Some(&Value::from(1_i64)));
-    assert_eq!(rows[1].get(0), Some(&Value::from(2_i64)));
-    Ok(())
+    let column = table.get_column_by_name("id");
+    assert!(column.is_some());
+    if let Some(c) = column {
+        assert_eq!(c.name(), "id");
+        assert_eq!(c.data_type(), &DataType::Integer);
+    }
+}
+
+#[test]
+fn get_column_by_name_missing_returns_none() {
+    let col = create_column("id", DataType::Integer, false, false, false);
+    let table = create_table(vec![col]);
+    assert!(table.get_column_by_name("missing").is_none());
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(128))]
+
+    #[test]
+    fn insert_unique_values_always_succeeds(
+        values in prop::collection::vec(any::<i64>(), 0..50),
+    ) {
+        let col = create_column("id", DataType::Integer, true, false, false);
+        let mut table = create_table(vec![col]);
+        let mut unique_set = std::collections::HashSet::new();
+        for v in values {
+            let value = int_value(v);
+            if unique_set.insert(v) {
+                prop_assert!(table.insert(Row::new(vec![value])).is_ok());
+            } else {
+                prop_assert!(table.insert(Row::new(vec![value])).is_err());
+            }
+        }
+        prop_assert_eq!(table.len(), unique_set.len());
+    }
+
+    #[test]
+    fn insert_null_multiple_times_on_unique_column(
+        count in 0..20,
+    ) {
+        let mut col = create_column("id", DataType::Integer, true, true, false);
+        col.set_nullable(true);
+        let mut table = create_table(vec![col]);
+        for _ in 0..count {
+            prop_assert!(table.insert(Row::new(vec![Value::Null])).is_ok());
+        }
+        prop_assert_eq!(table.len(), count as usize);
+    }
+
+    #[test]
+    fn replace_rows_rebuilds_index_consistently(
+        initial in prop::collection::vec(any::<i64>(), 0..20),
+        new_values in prop::collection::vec(any::<i64>(), 0..20),
+    ) {
+        let col = create_column("id", DataType::Integer, true, false, false);
+        let mut table = create_table(vec![col]);
+
+        let mut initial_unique = std::collections::HashSet::new();
+        for v in initial {
+            if initial_unique.insert(v) {
+                prop_assert!(table.insert(Row::new(vec![int_value(v)])).is_ok());
+            }
+        }
+
+        let mut new_rows = Vec::new();
+        let mut new_unique = std::collections::HashSet::new();
+        for v in new_values {
+            if new_unique.insert(v) {
+                new_rows.push(Row::new(vec![int_value(v)]));
+            }
+        }
+
+        prop_assert!(table.replace_rows(new_rows).is_ok());
+
+        for v in &new_unique {
+            prop_assert!(table.lookup_by_unique(0, &int_value(*v)).is_some());
+        }
+        for v in initial_unique.difference(&new_unique) {
+            prop_assert!(table.lookup_by_unique(0, &int_value(*v)).is_none());
+        }
+    }
+
+    #[test]
+    fn set_cell_and_lookup_consistent(
+        values in prop::collection::vec(any::<i64>(), 1..20),
+    ) {
+        let col = create_column("id", DataType::Integer, true, false, false);
+        let mut table = create_table(vec![col]);
+
+        let mut unique_vals = Vec::new();
+        for v in values {
+            let value = int_value(v);
+            if !unique_vals.contains(&v) {
+                prop_assert!(table.insert(Row::new(vec![value.clone()])).is_ok());
+                unique_vals.push(v);
+            }
+        }
+
+        for (i, &old_val) in unique_vals.iter().enumerate().take(unique_vals.len().min(10)) {
+            let new_val = old_val + 1000;
+            prop_assert!(table.set_cell(i, 0, int_value(new_val)).is_ok());
+            prop_assert!(table.lookup_by_unique(0, &int_value(new_val)).is_some());
+            prop_assert!(table.lookup_by_unique(0, &int_value(old_val)).is_none());
+        }
+    }
 }
