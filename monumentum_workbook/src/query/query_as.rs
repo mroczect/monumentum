@@ -59,4 +59,16 @@ where
         let row = self.inner.fetch_optional()?;
         row.map(|r| O::from_row(&r)).transpose()
     }
+
+    #[must_use]
+    pub fn select_by_names(mut self, columns: &[&str]) -> Self {
+        self.inner = self.inner.select_by_names(columns);
+        self
+    }
+
+    #[must_use]
+    pub fn order_by_name(mut self, col_name: &str, ascending: bool) -> Self {
+        self.inner = self.inner.order_by_name(col_name, ascending);
+        self
+    }
 }
