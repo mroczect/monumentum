@@ -1,64 +1,127 @@
 # Monumentum DB
 
+**A lightweight, embedded database engine written in Rust.**
+
+`monumentum_db` is a strongly typed storage layer with in-memory and file-based persistence, write-ahead logging (WAL), and explicit constraint enforcement. It serves as the foundation for the Monumentum workspace and can be used standalone for applications that need a safe, embedded data store.
+
+---
+
+## Table of Contents
+
+- [Overview](#overview)
+- [Design Goals](#design-goals)
+- [Installation](#installation)
+- [Architecture](#architecture)
+- [Data Model](#data-model)
+  - [Value](#value)
+  - [Row](#row)
+  - [ColumnDef](#columndef)
+  - [TableSchema](#tableschema)
+  - [Table](#table)
+  - [Catalog](#catalog)
+- [Storage Layer](#storage-layer)
+  - [StorageEngine](#storageengine)
+  - [FileStorage](#filestorage)
+  - [InMemoryStorage](#inmemorystorage)
+  - [WAL & Append Log](#wal--append-log)
+  - [Serialization](#serialization)
+  - [File Operations](#file-operations)
+  - [Recovery](#recovery)
+- [Error Handling](#error-handling)
+- [Types](#types)
+  - [Integer](#integer)
+  - [Float](#float)
+  - [Text](#text)
+  - [Blob](#blob)
+- [Full API Reference](#full-api-reference)
+- [Examples](#examples)
+  - [In-Memory Database](#in-memory-database)
+  - [File-Based Database](#file-based-database)
+- [Testing](#testing)
+- [Security](#security)
+- [Limitations](#limitations)
+- [License](#license)
+
+---
+
 ## Overview
 
-**Monumentum DB** is a lightweight, embedded database engine written in Rust. It provides a strongly typed, transactional (via WAL) storage layer with support for both in-memory and file-based persistence. The engine is designed with a focus on data integrity, explicit constraint enforcement, and resistance to common storage corruption and injection vectors.
+`monumentum_db` provides:
 
-The project is part of a workspace containing two crates:
+- Typed tables with schemas, columns, rows, and cells.
+- Constraints: primary key, unique, not null, default, check, and allowed values.
+- In-memory and file-backed storage engines.
+- Durable file storage using snapshots + write-ahead log.
+- Serialization for all data structures.
+- Safe file operations (atomic writes, file locking, symlink protection).
+- A single error type (`DbError`) for explicit error handling.
 
-- `monumentum_db` – the core storage engine (documented here)
-- `monumentum_query` – a future query layer that will sit on top of the storage engine (currently under development)
+The crate is part of the Monumentum workspace:
 
-**Repository:** [https://github.com/mroczect/monumentum](https://github.com/mroczect/monumentum)
+- `monumentum_db` – core storage engine (this crate)
+- `monumentum_query` – formula engine for spreadsheet calculations
+- `monumentum_workbook` – high-level spreadsheet API
+- `monumentum_functions` – preset functions for formula evaluation
 
 ---
 
 ## Design Goals
 
-- **Safety** – No `unsafe` code, all errors are explicit via `DbError`.
-- **Durability** – Write‑ahead logging (WAL) with CRC32 checksums and atomic snapshot replacement.
-- **Integrity** – Constraints (primary key, unique, null, default, check, foreign key) are enforced at the storage layer.
-- **Portability** – Standard library only; platform‑specific features (file locking, `/dev/urandom`) have graceful fallbacks.
-- **Clarity** – Modular architecture with a small, well‑documented public API.
+- **Safety** – no `unsafe` code; all fallible operations return `Result`.
+- **Durability** – WAL with CRC32 checksums and atomic snapshot replacement.
+- **Integrity** – constraints are enforced at the storage layer.
+- **Portability** – standard library only; platform-specific features degrade gracefully.
+- **Clarity** – small, well-documented public API.
+
+---
+
+## Installation
+
+Add via Git:
+
+```toml
+[dependencies]
+monumentum_db = { git = "https://github.com/mroczect/monumentum" }
+```
 
 ---
 
 ## Architecture
 
-The crate is organised into three core modules:
+The crate is organized into three main modules:
 
 ### `core`
 
-Defines the in‑memory data model:
+Defines the in-memory data model:
 
-- `Catalog` – owns all tables in an ordered map.
-- `Table` – holds a schema, rows, and optional unique indexes.
-- `Row` – a list of `Value`s.
-- `Value` – a strongly typed enum for scalar data.
-- `schema::ColumnDef` – describes a column’s name, data type, and constraints.
-- `schema::TableSchema` – validates a collection of column definitions.
-- `index::HashIndex` – internal hash map for unique constraint enforcement.
+- `Catalog` – ordered map of table names to `Table` objects.
+- `Table` – schema + rows + optional unique indexes.
+- `Row` – ordered list of `Value`s.
+- `Value` – strongly typed scalar value.
+- `schema::ColumnDef` – column definition with constraints.
+- `schema::TableSchema` – validated list of columns.
+- `index::HashIndex` – internal map for unique constraint enforcement.
 
 ### `store`
 
 Handles persistence:
 
-- `StorageEngine` – trait abstracting load/save operations.
-- `FileStorage` – durable storage using a snapshot file plus a write‑ahead log.
-- `InMemoryStorage` – transient storage for tests or caching.
-- `wal::Wal` – manages the append‑only log with file locking.
-- `append_log` – low‑level record format with CRC32 checksums.
-- `serialize` – binary serialization/deserialization for all data structures.
-- `file` – safe file operations (atomic write, random temp names, no‑follow flags).
-- `recovery` – utilities for recovering from WAL.
+- `StorageEngine` – trait for load/save.
+- `FileStorage` – file-based durable storage.
+- `InMemoryStorage` – transient storage.
+- `wal::Wal` – append-only log with locking.
+- `append_log` – low-level record format with CRC32.
+- `serialize` – binary serialization/deserialization.
+- `file` – safe file operations.
+- `recovery` – WAL recovery utilities.
 
 ### `types`
 
-Thin, safe wrappers around primitive types:
+Safe wrappers:
 
-- `Integer` – checked arithmetic.
-- `Float` – finite‑only floating point.
-- `Text` – UTF‑8 string with case‑insensitive helpers.
+- `Integer` – checked arithmetic on `i64`.
+- `Float` – finite-only `f64`.
+- `Text` – UTF-8 string helper.
 - `Blob` – byte array.
 
 ---
@@ -67,8 +130,6 @@ Thin, safe wrappers around primitive types:
 
 ### `Value`
 
-Enum with variants:
-
 ```rust
 pub enum Value {
     Null,
@@ -76,14 +137,45 @@ pub enum Value {
     Float(Float),
     Text(Text),
     Blob(Blob),
+    Boolean(bool),
+    Formula(String),
 }
 ```
 
-All non‑null variants hold a corresponding `types` wrapper. The `Value` type implements `Display`, `Default`, `From` conversions for `()`, `i64`, `String`, `&str`, `Vec<u8>`, `&[u8]`, and `TryFrom<f64>`. It also provides accessor methods (`as_integer`, `as_float`, etc.) and ownership‑taking methods (`into_integer`, etc.).
+- `Null` represents missing data.
+- `Integer`, `Float`, `Text`, `Blob` wrap the corresponding `types` wrappers.
+- `Boolean` holds a `bool`.
+- `Formula` holds a raw formula string (used by higher layers).
+
+`Value` implements:
+
+- `Display`
+- `Default` (defaults to `Null`)
+- `From` for `()`, `i64`, `String`, `&str`, `Vec<u8>`, `&[u8]`, `bool`, `Integer`, `Float`, `Text`, `Blob`
+- `TryFrom<f64>` (rejects non-finite values)
+
+Accessor methods:
+
+- `is_null`, `is_integer`, `is_float`, `is_text`, `is_blob`, `is_boolean`, `is_formula`
+- `as_integer`, `as_float`, `as_text`, `as_blob`, `as_boolean`, `as_formula`
+- `into_integer`, `into_float`, `into_text`, `into_blob`, `into_boolean`, `into_formula`
+- `type_name` – returns a static string description.
 
 ### `Row`
 
-A `Row` is a simple wrapper around `Vec<Value>`. It ensures value order and provides indexing, length, and emptiness checks. Rows are validated against a schema before insertion.
+```rust
+pub struct Row {
+    values: Vec<Value>,
+}
+```
+
+Methods:
+
+- `new(values)` – create a row.
+- `values()` – slice of all values.
+- `get(index)` – optional access to a value.
+- `len()`, `is_empty()` – size checks.
+- `values_mut()`, `get_mut(index)` – mutable access (used internally).
 
 ### `ColumnDef`
 
@@ -97,118 +189,208 @@ pub struct ColumnDef {
     default_value: Option<Value>,
     check_constraint: Option<CheckConstraint>,
     foreign_key: Option<ForeignKey>,
+    allowed_values: Option<Vec<Value>>,
 }
 ```
 
-- `DataType` enum: `Null`, `Integer`, `Float`, `Text`, `Blob`.
-- `ComparisonOp` enum: `Eq`, `NotEq`, `Lt`, `Lte`, `Gt`, `Gte`.
-- `CheckConstraint` struct: column name, operator, comparison value.
-- `ForeignKey` struct: referenced table and column.
+Where:
+
+```rust
+pub enum DataType { Null, Integer, Float, Text, Blob }
+
+pub enum ComparisonOp { Eq, NotEq, Lt, Lte, Gt, Gte }
+
+pub struct CheckConstraint {
+    pub column: String,
+    pub op: ComparisonOp,
+    pub value: Value,
+}
+
+pub struct ForeignKey {
+    pub table: String,
+    pub column: String,
+}
+```
+
+Methods:
+
+- `new(name, data_type)` – creates a nullable, non-key column.
+- Getters for all fields.
+- Setters:
+  - `set_nullable`
+  - `set_primary_key` (forces `nullable = false`, `unique = true`)
+  - `set_unique`
+  - `set_default`
+  - `set_check`
+  - `set_foreign_key`
+  - `set_allowed_values`
+- `validate_value(&Value)` – checks formula allowance, nullability, data type, check constraint, and allowed values.
 
 ### `TableSchema`
 
-A schema contains a table name and a list of column definitions. It validates:
+```rust
+pub struct TableSchema {
+    name: String,
+    columns: Vec<ColumnDef>,
+}
+```
 
-- Table name is non‑empty.
-- At least one column exists.
-- Maximum 1024 columns.
-- Column names are non‑empty and unique (case‑insensitive).
-- Values passed to `validate_values` match the column count, data types, nullability, and check constraints.
+Methods:
+
+- `try_new(name, columns)` – validates:
+  - non-empty table name
+  - at least one column
+  - max 1024 columns
+  - non-empty unique column names (case-insensitive)
+- `name()`, `columns()`
+- `column_index(name)` – case-insensitive lookup
+- `get_column(name)`
+- `get_column_mut(index)` – used internally for schema changes
+- `validate_values(&[Value])` – validates a row against all columns.
 
 ### `Table`
 
-A table holds a schema, a vector of rows, and optional `HashIndex` instances for columns marked `unique` or `primary_key`. Methods include:
+```rust
+pub struct Table {
+    schema: TableSchema,
+    rows: Vec<Row>,
+    unique_indexes: Vec<Option<HashIndex>>,
+    read_only: bool,
+}
+```
 
-- `new(schema)`
-- `insert(row)` – validates, applies defaults, checks duplicates, updates index.
-- `replace_rows(rows)` – validates all rows, checks duplicates, rebuilds indexes.
-- `lookup_by_unique(col_idx, value)` – fast lookup via index (falls back to linear scan).
-- `schema()`, `rows()`, `len()`, `is_empty()`, `get(index)`.
+Methods:
+
+- `new(schema)` – creates an empty table.
+- `insert(row)` – validates, applies defaults, checks duplicates, updates indexes.
+- `replace_rows(rows)` – replaces all rows after validation and duplicate check.
+- `set_cell(row_idx, col_idx, value)` – updates one cell, maintaining unique indexes and validation.
+- `set_column_allowed_values(col_idx, values)` – updates allowed values with full validation of existing rows.
+- `lookup_by_unique(col_idx, value)` – fast lookup via unique index or linear scan.
+- `schema()`, `rows()`, `len()`, `is_empty()`, `get(index)`
+- `rename_schema(new_name)` – renames the table (used by catalog rename).
+- `is_read_only()`, `set_read_only(bool)`
 
 ### `Catalog`
 
-An ordered map of table names to `Table` objects. Provides:
+```rust
+pub struct Catalog {
+    tables: BTreeMap<String, Table>,
+}
+```
 
-- `create_table(schema)`
-- `drop_table(name)`
+Methods:
+
+- `new()` – empty catalog.
+- `create_table(schema)` – inserts a new table.
+- `drop_table(name)` – removes a table.
+- `replace_table(name, table)` – replaces an existing table atomically.
+- `rename_table(old_name, new_name)` – atomically renames a table and updates schema name.
 - `get_table(name)`, `get_table_mut(name)`
-- `tables()` iterator
+- `tables()` – iterator over `(&str, &Table)`.
 - `len()`, `is_empty()`
 
 ---
 
 ## Storage Layer
 
-### `StorageEngine` Trait
+### `StorageEngine`
 
 ```rust
 pub trait StorageEngine {
     fn load_catalog(&mut self) -> Result<Catalog, DbError>;
     fn save_catalog(&mut self, catalog: &Catalog) -> Result<(), DbError>;
     fn get_table(&self, name: &str) -> Option<&Table>;
-    fn get_table_mut(&mut self, name: &str) -> Option<&mut Table>;
 }
 ```
 
 Implementations:
 
-- `InMemoryStorage` – stores a `Catalog` directly in memory. `save_catalog` simply clones and stores.
+- `InMemoryStorage` – stores a `Catalog` in memory.
 - `FileStorage` – persists via snapshot and WAL.
 
 ### `FileStorage`
 
 On `open(path)`:
 
-1. Opens (or creates) the WAL file at `path.with_extension("wal")` and locks it.
-2. If the snapshot file exists, reads and deserializes it, applying a 256 MB size limit.
-3. Reads all WAL records, deserializes each snapshot, and picks the one with the highest sequence number.
-4. Returns a `FileStorage` instance ready for operations.
+1. Opens or creates the WAL file (`path` with `.wal` extension) and locks it.
+2. If the snapshot file exists, reads and decodes it (limit 256 MB).
+3. Reads all WAL records, decodes each snapshot, and applies the one with the highest sequence number.
+4. Returns a ready-to-use `FileStorage`.
 
-`save_catalog` increments the sequence number (checked addition), appends the serialized snapshot to the WAL, and updates the in‑memory catalog.
+Methods:
 
-`checkpoint` atomically writes the current catalog to the snapshot file and truncates the WAL.
+- `open(path)` – open or create.
+- `save_catalog(catalog)` – append a new snapshot to WAL with incremented sequence.
+- `checkpoint()` – atomically write current catalog to snapshot and truncate WAL.
+- `sync()` – flush WAL to disk.
+- `reload_from_disk()` – discard in-memory state and reload from snapshot + WAL.
+- `close(self)` – unlock WAL.
 
-`close` explicitly unlocks the WAL file.
+### `InMemoryStorage`
 
-### WAL and Append Log
+Simple in-memory implementation of `StorageEngine`. `save_catalog` clones and stores the catalog; `load_catalog` returns a clone.
 
-- The WAL uses a custom record format: `[magic u32][version u32][length u64][checksum u32][payload]`.
-- CRC32 checksum verifies payload integrity.
-- Maximum record size: 64 MB.
-- `append_record` and `read_records` are available directly from the `append_log` module.
+### WAL & Append Log
+
+The WAL uses a custom record format:
+
+```
+[magic: u32][version: u32][length: u64][checksum: u32][payload: bytes]
+```
+
+- `MAGIC = 0x4D4F4E55`
+- `VERSION = 1`
+- `HEADER_SIZE = 20`
+- `MAX_RECORD_SIZE = 64 MiB`
+
+Functions:
+
+- `append_record(file, payload)` – appends a validated record with CRC32.
+- `read_records(file)` – reads all records, validating magic, version, length, checksum.
 
 ### Serialization
 
-The `serialize` module provides functions to encode/decode:
+The `serialize` module provides encode/decode functions for:
 
-- `encode_catalog`, `decode_catalog`
-- `encode_table`, `decode_table`
-- `encode_row`, `decode_row`
-- `encode_column_def`, `decode_column_def`
-- `encode_table_schema`, `decode_table_schema`
-- `encode_value`, `decode_value`
+- `encode_catalog` / `decode_catalog`
+- `encode_table` / `decode_table`
+- `encode_table_schema` / `decode_table_schema`
+- `encode_column_def` / `decode_column_def`
+- `encode_row` / `decode_row`
+- `encode_value` / `decode_value`
 
-All encoding uses little‑endian primitive values with length prefixes. Decoding enforces maximum lengths and returns `DbError::Corruption` for invalid data.
+All encoding is little-endian with length prefixes. Decoding enforces maximum lengths and returns `DbError::Corruption` for invalid data.
 
 ### File Operations
 
-The `file` module exposes:
+The `file` module provides:
 
-- `open_or_create(path)` – opens with `O_NOFOLLOW`, mode `0600`.
-- `read_file(path)`
-- `write_all_atomic(path, data)` – writes to a temp file with `O_EXCL`/`O_NOFOLLOW`, fsyncs, renames, fsyncs directory.
+- `open_or_create(path)` – opens with `O_NOFOLLOW` and mode `0600`.
+- `read_file(path)` – reads entire file.
+- `write_all_atomic(path, data)` – writes to a temp file, fsyncs, renames, fsyncs directory.
 - `append_to_file(file, data)`
 - `sync_file(file)`
 
-Temp file names are generated using 16 random bytes from `/dev/urandom` (if available), falling back to a pseudo‑random fallback.
+Temp files use 16 random bytes from `/dev/urandom` for uniqueness.
+
+### Recovery
+
+```rust
+pub struct RecoveryResult {
+    pub records: Vec<Vec<u8>>,
+}
+
+pub fn recover_wal(path: &Path) -> Result<RecoveryResult, DbError>;
+```
+
+Reads all records from a WAL file.
 
 ---
 
 ## Error Handling
 
-All fallible functions return `Result<_, DbError>`.
-
-`DbError` is an enum:
+All fallible functions return `Result<T, DbError>`.
 
 ```rust
 pub enum DbError {
@@ -224,52 +406,99 @@ pub enum DbError {
 }
 ```
 
-Constructors are provided (e.g., `DbError::table_not_found("users")`). The error implements `Display`, `Error`, and `From<std::io::Error>`.
+Constructors:
+
+- `DbError::table_not_found(name)`
+- `DbError::column_not_found(name)`
+- `DbError::type_mismatch(msg)`
+- `DbError::invalid_operation(msg)`
+- `DbError::invalid_query(msg)`
+- `DbError::unsupported(msg)`
+- `DbError::corruption(err)`
+- `DbError::transaction(err)`
+
+Implements `Display`, `Error`, and `From<std::io::Error>`.
 
 ---
 
 ## Types
 
-### `Integer`
+### Integer
 
-Wrapper around `i64` with:
+Wrapper around `i64` with checked arithmetic.
 
-- `new(i64)`
-- `as_i64()`
-- `checked_add`, `checked_sub`, `checked_mul`, `checked_div`
-- `to_le_bytes`, `from_le_bytes`
-- `Display`, `From<i64>`, `TryFrom<&str>`
+```rust
+pub struct Integer(i64);
 
-### `Float`
+impl Integer {
+    pub const fn new(value: i64) -> Self;
+    pub const fn as_i64(self) -> i64;
+    pub const fn checked_add(self, rhs: Self) -> Option<Self>;
+    pub const fn checked_sub(self, rhs: Self) -> Option<Self>;
+    pub const fn checked_mul(self, rhs: Self) -> Option<Self>;
+    pub const fn checked_div(self, rhs: Self) -> Option<Self>;
+    pub const fn to_le_bytes(self) -> [u8; 8];
+    pub const fn from_le_bytes(bytes: [u8; 8]) -> Self;
+}
+```
+
+Implements `Display`, `From<i64>`, `TryFrom<&str>`.
+
+### Float
 
 Wrapper around `f64` that guarantees finiteness.
 
-- `try_new(f64) -> Result<Float, DbError>`
-- `as_f64()`
-- `total_cmp(&self, &Float) -> Ordering`
-- `try_from_le_bytes`, `to_le_bytes`
-- `Display`, `TryFrom<f64>`, `TryFrom<&str>`
+```rust
+pub struct Float(f64);
 
-### `Text`
+impl Float {
+    pub fn try_new(value: f64) -> Result<Self, DbError>;
+    pub const fn as_f64(self) -> f64;
+    pub fn total_cmp(&self, other: &Self) -> Ordering;
+    pub fn try_from_le_bytes(bytes: [u8; 8]) -> Result<Self, DbError>;
+    pub const fn to_le_bytes(self) -> [u8; 8];
+}
+```
+
+Implements `Display`, `TryFrom<f64>`, `TryFrom<&str>`.
+
+### Text
 
 Wrapper around `String`.
 
-- `new(String)`
-- `as_str()`
-- `len()`, `is_empty()`
-- `to_lowercase()`, `to_uppercase()`
-- `contains_ignore_case(needle)`
-- `as_bytes()`
-- `Display`, `From<String>`, `From<&str>`, `AsRef<str>`
+```rust
+pub struct Text(String);
 
-### `Blob`
+impl Text {
+    pub fn new(value: String) -> Self;
+    pub fn as_str(&self) -> &str;
+    pub fn len(&self) -> usize;
+    pub fn is_empty(&self) -> bool;
+    pub fn to_lowercase(&self) -> Self;
+    pub fn to_uppercase(&self) -> Self;
+    pub fn contains_ignore_case(&self, needle: &str) -> bool;
+    pub fn as_bytes(&self) -> &[u8];
+}
+```
+
+Implements `Display`, `From<String>`, `From<&str>`, `AsRef<str>`.
+
+### Blob
 
 Wrapper around `Vec<u8>`.
 
-- `new(Vec<u8>)`
-- `as_slice()`
-- `len()`, `is_empty()`
-- `Display`, `From<Vec<u8>>`, `From<&[u8]>`, `AsRef<[u8]>`
+```rust
+pub struct Blob(Vec<u8>);
+
+impl Blob {
+    pub fn new(value: Vec<u8>) -> Self;
+    pub fn as_slice(&self) -> &[u8];
+    pub fn len(&self) -> usize;
+    pub fn is_empty(&self) -> bool;
+}
+```
+
+Implements `Display`, `From<Vec<u8>>`, `From<&[u8]>`, `AsRef<[u8]>`.
 
 ---
 
@@ -284,6 +513,8 @@ impl Catalog {
     pub fn new() -> Self;
     pub fn create_table(&mut self, schema: TableSchema) -> Result<(), DbError>;
     pub fn drop_table(&mut self, name: &str) -> Result<(), DbError>;
+    pub fn replace_table(&mut self, name: &str, table: Table) -> Result<(), DbError>;
+    pub fn rename_table(&mut self, old_name: &str, new_name: &str) -> Result<(), DbError>;
     pub fn get_table(&self, name: &str) -> Option<&Table>;
     pub fn get_table_mut(&mut self, name: &str) -> Option<&mut Table>;
     pub fn tables(&self) -> impl Iterator<Item = (&str, &Table)>;
@@ -301,12 +532,21 @@ impl Table {
     pub fn new(schema: TableSchema) -> Self;
     pub fn insert(&mut self, row: Row) -> Result<(), DbError>;
     pub fn replace_rows(&mut self, rows: Vec<Row>) -> Result<(), DbError>;
+    pub fn set_cell(&mut self, row_idx: usize, col_idx: usize, value: Value) -> Result<(), DbError>;
+    pub fn set_column_allowed_values(
+        &mut self,
+        col_idx: usize,
+        values: Option<Vec<Value>>,
+    ) -> Result<(), DbError>;
     pub fn lookup_by_unique(&self, col_idx: usize, value: &Value) -> Option<&Row>;
     pub fn schema(&self) -> &TableSchema;
     pub fn rows(&self) -> &[Row];
     pub fn len(&self) -> usize;
     pub fn is_empty(&self) -> bool;
     pub fn get(&self, index: usize) -> Option<&Row>;
+    pub fn rename_schema(&mut self, new_name: &str) -> Result<(), DbError>;
+    pub const fn is_read_only(&self) -> bool;
+    pub fn set_read_only(&mut self, value: bool);
 }
 ```
 
@@ -321,13 +561,23 @@ impl Row {
     pub fn get(&self, index: usize) -> Option<&Value>;
     pub fn len(&self) -> usize;
     pub fn is_empty(&self) -> bool;
+    pub fn values_mut(&mut self) -> &mut Vec<Value>;
+    pub fn get_mut(&mut self, index: usize) -> Option<&mut Value>;
 }
 ```
 
 ### `core::value::Value`
 
 ```rust
-pub enum Value { Null, Integer(Integer), Float(Float), Text(Text), Blob(Blob) }
+pub enum Value {
+    Null,
+    Integer(Integer),
+    Float(Float),
+    Text(Text),
+    Blob(Blob),
+    Boolean(bool),
+    Formula(String),
+}
 
 impl Value {
     pub fn is_null(&self) -> bool;
@@ -335,26 +585,31 @@ impl Value {
     pub fn is_float(&self) -> bool;
     pub fn is_text(&self) -> bool;
     pub fn is_blob(&self) -> bool;
+    pub fn is_boolean(&self) -> bool;
+    pub fn is_formula(&self) -> bool;
     pub fn type_name(&self) -> &'static str;
     pub fn as_integer(&self) -> Option<&Integer>;
     pub fn as_float(&self) -> Option<&Float>;
     pub fn as_text(&self) -> Option<&Text>;
     pub fn as_blob(&self) -> Option<&Blob>;
+    pub fn as_boolean(&self) -> Option<bool>;
+    pub fn as_formula(&self) -> Option<&str>;
     pub fn into_integer(self) -> Option<Integer>;
     pub fn into_float(self) -> Option<Float>;
     pub fn into_text(self) -> Option<Text>;
     pub fn into_blob(self) -> Option<Blob>;
+    pub fn into_boolean(self) -> Option<bool>;
+    pub fn into_formula(self) -> Option<String>;
 }
-
-// Display, Default, From<()>, From<Integer>, From<Float>, From<Text>, From<Blob>,
-// From<i64>, From<String>, From<&str>, From<Vec<u8>>, From<&[u8]>, TryFrom<f64>
 ```
 
 ### `core::schema::column`
 
 ```rust
 pub enum DataType { Null, Integer, Float, Text, Blob }
-impl DataType { pub const fn as_str(&self) -> &'static str; }
+impl DataType {
+    pub const fn as_str(&self) -> &'static str;
+}
 impl Display for DataType;
 
 pub enum ComparisonOp { Eq, NotEq, Lt, Lte, Gt, Gte }
@@ -381,12 +636,15 @@ impl ColumnDef {
     pub const fn default_value(&self) -> Option<&Value>;
     pub const fn check_constraint(&self) -> Option<&CheckConstraint>;
     pub const fn foreign_key(&self) -> Option<&ForeignKey>;
+    pub const fn allowed_values(&self) -> Option<&Vec<Value>>;
     pub fn set_nullable(&mut self, value: bool);
     pub fn set_primary_key(&mut self, value: bool);
     pub fn set_unique(&mut self, value: bool);
     pub fn set_default(&mut self, value: Option<Value>);
     pub fn set_check(&mut self, constraint: Option<CheckConstraint>);
     pub fn set_foreign_key(&mut self, fk: Option<ForeignKey>);
+    pub fn set_allowed_values(&mut self, values: Option<Vec<Value>>);
+    pub fn validate_value(&self, value: &Value) -> Result<(), DbError>;
 }
 ```
 
@@ -398,6 +656,7 @@ impl TableSchema {
     pub fn try_new(name: impl Into<String>, columns: Vec<ColumnDef>) -> Result<Self, DbError>;
     pub fn name(&self) -> &str;
     pub fn columns(&self) -> &[ColumnDef];
+    pub fn get_column_mut(&mut self, index: usize) -> Option<&mut ColumnDef>;
     pub fn column_index(&self, name: &str) -> Option<usize>;
     pub fn get_column(&self, name: &str) -> Option<&ColumnDef>;
     pub fn validate_values(&self, values: &[Value]) -> Result<(), DbError>;
@@ -411,7 +670,6 @@ pub trait StorageEngine {
     fn load_catalog(&mut self) -> Result<Catalog, DbError>;
     fn save_catalog(&mut self, catalog: &Catalog) -> Result<(), DbError>;
     fn get_table(&self, name: &str) -> Option<&Table>;
-    fn get_table_mut(&mut self, name: &str) -> Option<&mut Table>;
 }
 
 pub struct FileStorage { /* private */ }
@@ -419,13 +677,16 @@ impl FileStorage {
     pub fn open(path: &Path) -> Result<Self, DbError>;
     pub fn sync(&mut self) -> Result<(), DbError>;
     pub fn checkpoint(&mut self) -> Result<(), DbError>;
+    pub fn reload_from_disk(&mut self) -> Result<Catalog, DbError>;
     pub fn close(self) -> Result<(), DbError>;
 }
 impl StorageEngine for FileStorage;
 impl Drop for FileStorage;
 
 pub struct InMemoryStorage { /* private */ }
-impl InMemoryStorage { pub fn new() -> Self; }
+impl InMemoryStorage {
+    pub fn new() -> Self;
+}
 impl StorageEngine for InMemoryStorage;
 ```
 
@@ -470,7 +731,7 @@ pub fn recover_wal(path: &Path) -> Result<RecoveryResult, DbError>;
 
 ### `store::serialize`
 
-Public encode/decode functions for catalog, table, schema, row, column, and value. (See source for exact signatures.)
+Public encode/decode functions for catalog, table, schema, row, column, and value. See source for exact signatures.
 
 ### `error::DbError`
 
@@ -505,7 +766,6 @@ impl Integer {
     pub const fn to_le_bytes(self) -> [u8; 8];
     pub const fn from_le_bytes(bytes: [u8; 8]) -> Self;
 }
-impl Display, From<i64>, TryFrom<&str>;
 ```
 
 ### `types::float`
@@ -519,7 +779,6 @@ impl Float {
     pub fn try_from_le_bytes(bytes: [u8; 8]) -> Result<Self, DbError>;
     pub const fn to_le_bytes(self) -> [u8; 8];
 }
-impl Display, TryFrom<f64>, TryFrom<&str>;
 ```
 
 ### `types::text`
@@ -536,7 +795,6 @@ impl Text {
     pub fn contains_ignore_case(&self, needle: &str) -> bool;
     pub fn as_bytes(&self) -> &[u8];
 }
-impl Display, From<String>, From<&str>, AsRef<str>;
 ```
 
 ### `types::blob`
@@ -549,33 +807,18 @@ impl Blob {
     pub fn len(&self) -> usize;
     pub fn is_empty(&self) -> bool;
 }
-impl Display, From<Vec<u8>>, From<&[u8]>, AsRef<[u8]>;
 ```
 
 ---
 
-## Getting Started
+## Examples
 
-### Prerequisites
-
-- Rust stable (1.60+ recommended)
-- Cargo
-- Unix-like OS for full file locking; non-Unix platforms have graceful degradation.
-
-### Installation
-
-Add the dependency via Git:
-
-```toml
-[dependencies]
-monumentum_db = { git = "https://github.com/mroczect/monumentum" }
-```
-
-### Usage Example: In‑Memory
+### In-Memory Database
 
 ```rust
 use monumentum_db::{
-    core::{catalog::Catalog, schema::column::{ColumnDef, DataType}, schema::table_schema::TableSchema, row::Row, value::Value},
+    core::{catalog::Catalog, row::Row, schema::column::{ColumnDef, DataType},
+            schema::table_schema::TableSchema, value::Value},
     store::storage::{InMemoryStorage, StorageEngine},
 };
 
@@ -587,32 +830,38 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             ColumnDef::new("name", DataType::Text),
         ],
     )?;
+
     let mut catalog = Catalog::new();
     catalog.create_table(schema)?;
 
-    // Insert a row
-    let table = catalog.get_table_mut("users").unwrap();
-    table.insert(Row::new(vec![Value::from(1_i64), Value::from("Alice")]))?;
+    if let Some(table) = catalog.get_table_mut("users") {
+        table.insert(Row::new(vec![
+            Value::from(1_i64),
+            Value::from("Alice"),
+        ]))?;
+    }
 
     let mut storage = InMemoryStorage::new();
     storage.save_catalog(&catalog)?;
     let loaded = storage.load_catalog()?;
+
     assert_eq!(loaded.get_table("users").unwrap().len(), 1);
     Ok(())
 }
 ```
 
-### Usage Example: File‑Based
+### File-Based Database
 
 ```rust
 use monumentum_db::{
-    core::{catalog::Catalog, schema::column::{ColumnDef, DataType}, schema::table_schema::TableSchema},
+    core::{catalog::Catalog, schema::column::{ColumnDef, DataType},
+            schema::table_schema::TableSchema},
     store::storage::{FileStorage, StorageEngine},
 };
 use std::path::Path;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let path = Path::new("mydb");
+    let path = Path::new("mydb.monumentum");
     let mut storage = FileStorage::open(path)?;
 
     let schema = TableSchema::try_new(
@@ -622,16 +871,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             ColumnDef::new("description", DataType::Text),
         ],
     )?;
+
     let mut catalog = Catalog::new();
     catalog.create_table(schema)?;
 
     storage.save_catalog(&catalog)?;
     storage.sync()?;
-
-    // Later, to reduce WAL size
     storage.checkpoint()?;
-
     storage.close()?;
+
     Ok(())
 }
 ```
@@ -646,17 +894,22 @@ Run the full test suite:
 cargo test --workspace --all-targets --all-features
 ```
 
-The suite includes 299 integration tests covering core logic, serialization round‑trips, storage recovery, error handling, and injection resistance.
+Run clippy with warnings denied:
+
+```bash
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+```
 
 ---
 
-## Security Considerations
+## Security
 
-- **WAL and snapshot integrity** – CRC32 checksums and version fields detect corruption.
+- **No unsafe code** – all memory safety guarantees are maintained.
+- **WAL & snapshot integrity** – CRC32 checksums and version fields detect corruption.
 - **Atomic snapshots** – temp file + rename prevents partial writes.
-- **File permissions** – database files are created with `0600`.
+- **File permissions** – files are created with `0600`.
 - **Symlink attack prevention** – `O_NOFOLLOW` and `O_EXCL` are used on Unix.
-- **Resource limits** – maximum column count, row count, record size, and snapshot size.
+- **Resource limits** – max columns (1024), max rows (10,000,000), max record size (64 MiB), max snapshot size (256 MiB).
 - **Input validation** – all identifiers and values are validated; no raw string queries.
 
 ---
@@ -664,44 +917,12 @@ The suite includes 299 integration tests covering core logic, serialization roun
 ## Limitations
 
 - No SQL or query language yet (see `monumentum_query`).
-- Single‑threaded; users must provide synchronization for shared access.
-- Best performance on Linux/Unix; locking is a no‑op elsewhere.
+- Single-threaded; users must provide synchronization for shared access.
 - Full catalog serialization may not scale to extremely large datasets.
-
----
-
-## Contributing
-
-1. Run `cargo fmt --all`.
-2. Run `cargo clippy --workspace --all-targets --all-features -- -D warnings`.
-3. Ensure all tests pass.
-4. Follow Rust idiomatic style and document public API changes.
-5. Open an issue for discussion before adding significant features.
+- File locking is a no-op on non-Unix platforms.
 
 ---
 
 ## License
 
-```txt
-The MIT License (MIT)
-
-Copyright (c) 2026 mroczect
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in
-all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-THE SOFTWARE.
-```
+MIT License. See [LICENSE](LICENSE) for details.
