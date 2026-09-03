@@ -14,3 +14,9 @@ rust-version.workspace = true
 description = "Core database engine for Monumentum, built with Rust std only."
 
 [dependencies]
+
+
+[dev-dependencies]
+tempfile = "3"
+proptest = "1"
+pretty_assertions = "1"
