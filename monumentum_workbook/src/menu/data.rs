@@ -25,6 +25,16 @@ fn compare_values(a: &Value, b: &Value) -> Ordering {
 }
 
 impl<S: StorageEngine> Workbook<S> {
+    fn evaluate_column(&self, sheet: &str, col_idx: usize) -> Result<Vec<Value>, WorkbookError> {
+        let row_count = self.row_count(sheet)?;
+        let mut values = Vec::with_capacity(row_count);
+        for row_idx in 0..row_count {
+            let value = self.get_cell_value(sheet, row_idx, col_idx)?;
+            values.push(value);
+        }
+        Ok(values)
+    }
+
     pub fn sort_sheet(
         &mut self,
         sheet: &str,
@@ -35,6 +45,14 @@ impl<S: StorageEngine> Workbook<S> {
         let table = self.catalog.get_table(sheet).ok_or_else(|| {
             WorkbookError::Db(monumentum_db::error::DbError::table_not_found(sheet).to_string())
         })?;
+
+        for row in table.rows() {
+            if row.values().iter().any(Value::is_formula) {
+                return Err(WorkbookError::Formula(
+                    "cannot sort sheet containing formulas".to_string(),
+                ));
+            }
+        }
 
         let column_count = table.schema().columns().len();
         if col_idx >= column_count {
@@ -71,12 +89,17 @@ impl<S: StorageEngine> Workbook<S> {
             return Err(WorkbookError::InvalidReference);
         }
 
-        Ok(table
-            .rows()
-            .iter()
-            .filter(|row| row.get(col_idx) == Some(value))
-            .cloned()
-            .collect())
+        let row_count = table.len();
+        let mut matches = Vec::new();
+        for row_idx in 0..row_count {
+            let actual_value = self.get_cell_value(sheet, row_idx, col_idx)?;
+            if &actual_value == value {
+                if let Some(row) = table.get(row_idx) {
+                    matches.push(row.clone());
+                }
+            }
+        }
+        Ok(matches)
     }
 
     pub fn distinct_values(
@@ -93,12 +116,7 @@ impl<S: StorageEngine> Workbook<S> {
             return Err(WorkbookError::InvalidReference);
         }
 
-        let mut values: Vec<Value> = table
-            .rows()
-            .iter()
-            .filter_map(|row| row.get(col_idx).cloned())
-            .collect();
-
+        let mut values = self.evaluate_column(sheet, col_idx)?;
         values.sort_by(compare_values);
         values.dedup();
         Ok(values)
