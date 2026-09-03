@@ -16,6 +16,7 @@ impl Decode for DataType {
             2 => Ok(Self::Float),
             3 => Ok(Self::Text),
             4 => Ok(Self::Blob),
+            5 => Ok(Self::Boolean),
             _ => Err(DbError::corruption(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
                 "invalid data type tag",
