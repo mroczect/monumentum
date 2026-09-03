@@ -28,7 +28,7 @@ impl<S: StorageEngine> Workbook<S> {
     ) -> Result<(), WorkbookError> {
         self.ensure_writable(sheet)?;
         let table = self.catalog.get_table_mut(sheet).ok_or_else(|| {
-            WorkbookError::Db(monumentum_db::error::DbError::table_not_found(sheet).to_string())
+            WorkbookError::Db(monumentum_db::error::DbError::table_not_found(sheet))
         })?;
 
         let mut rows = table.rows().to_vec();
@@ -54,7 +54,7 @@ impl<S: StorageEngine> Workbook<S> {
 
         let positions = {
             let table = self.catalog.get_table(sheet).ok_or_else(|| {
-                WorkbookError::Db(monumentum_db::error::DbError::table_not_found(sheet).to_string())
+                WorkbookError::Db(monumentum_db::error::DbError::table_not_found(sheet))
             })?;
             let mut pos = Vec::new();
             let col_count = table.schema().columns().len();
@@ -70,7 +70,7 @@ impl<S: StorageEngine> Workbook<S> {
         };
 
         let table_mut = self.catalog.get_table_mut(sheet).ok_or_else(|| {
-            WorkbookError::Db(monumentum_db::error::DbError::table_not_found(sheet).to_string())
+            WorkbookError::Db(monumentum_db::error::DbError::table_not_found(sheet))
         })?;
 
         let mut count: usize = 0;
@@ -88,7 +88,7 @@ impl<S: StorageEngine> Workbook<S> {
         value: &Value,
     ) -> Result<Vec<(usize, usize)>, WorkbookError> {
         let table = self.catalog.get_table(sheet).ok_or_else(|| {
-            WorkbookError::Db(monumentum_db::error::DbError::table_not_found(sheet).to_string())
+            WorkbookError::Db(monumentum_db::error::DbError::table_not_found(sheet))
         })?;
         let mut matches = Vec::new();
         for (row_idx, row) in table.rows().iter().enumerate() {
