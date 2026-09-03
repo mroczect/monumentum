@@ -129,11 +129,11 @@ impl Decode for Table {
             )));
         }
         let mut table = Table::new(schema);
-        table.set_read_only(read_only);
         for _ in 0..row_count {
             let row = Row::decode(cursor)?;
             table.insert(row).map_err(DbError::corruption)?;
         }
+        table.set_read_only(read_only);
         Ok(table)
     }
 }
