@@ -2,8 +2,9 @@ use crate::core::catalog::Catalog;
 use crate::core::table::Table;
 use crate::error::DbError;
 use crate::store::file::write_all_atomic;
-use crate::store::serde::*;
+use crate::store::serde::{Decode, Encode};
 use crate::store::wal::Wal;
+use std::io::Cursor;
 use std::path::{Path, PathBuf};
 
 pub trait StorageEngine {
@@ -17,27 +18,15 @@ const MAX_SNAPSHOT_SIZE: u64 = 256 * 1024 * 1024;
 
 fn encode_snapshot(seq: u64, catalog: &Catalog) -> Result<Vec<u8>, DbError> {
     let mut buf = Vec::with_capacity(SEQ_BYTES + 64);
-    buf.extend_from_slice(&seq.to_le_bytes());
-    let catalog_bytes = encode_catalog(catalog)?;
-    buf.extend_from_slice(&catalog_bytes);
+    seq.encode(&mut buf)?;
+    catalog.encode(&mut buf)?;
     Ok(buf)
 }
 
 fn decode_snapshot(data: &[u8]) -> Result<(u64, Catalog), DbError> {
-    if data.len() < SEQ_BYTES {
-        return Err(DbError::corruption(std::io::Error::new(
-            std::io::ErrorKind::InvalidData,
-            "snapshot too short",
-        )));
-    }
-    let seq = u64::from_le_bytes(data[0..SEQ_BYTES].try_into().map_err(|_| {
-        DbError::corruption(std::io::Error::new(
-            std::io::ErrorKind::InvalidData,
-            "invalid sequence bytes",
-        ))
-    })?);
-    let catalog_data = &data[SEQ_BYTES..];
-    let catalog = decode_catalog(catalog_data)?;
+    let mut cursor = Cursor::new(data);
+    let seq = u64::decode(&mut cursor)?;
+    let catalog = Catalog::decode(&mut cursor)?;
     Ok((seq, catalog))
 }
 
