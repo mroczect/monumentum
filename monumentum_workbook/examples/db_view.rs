@@ -32,10 +32,7 @@ fn main() -> Result<(), Box<dyn core::error::Error>> {
     Ok(())
 }
 
-fn print_sheet(
-    wb: &Workbook<FileStorage>,
-    sheet: &str,
-) -> Result<(), Box<dyn core::error::Error>> {
+fn print_sheet(wb: &Workbook<FileStorage>, sheet: &str) -> Result<(), Box<dyn core::error::Error>> {
     let row_count = wb.row_count(sheet)?;
     let col_count = wb.column_count(sheet)?;
     println!("\nSheet: {sheet}  (rows: {row_count}, columns: {col_count})");
@@ -44,12 +41,10 @@ fn print_sheet(
         let mut line = String::from("  [");
         for col_idx in 0..col_count {
             let rendered = match wb.get_cell_value(sheet, row_idx, col_idx) {
-                Ok(Value::Formula(_)) | Ok(_) => {
-                    match wb.get_cell_value(sheet, row_idx, col_idx) {
-                        Ok(v) => format!("{v:?}"),
-                        Err(e) => format!("ERR: {e}"),
-                    }
-                }
+                Ok(Value::Formula(_)) | Ok(_) => match wb.get_cell_value(sheet, row_idx, col_idx) {
+                    Ok(v) => format!("{v:?}"),
+                    Err(e) => format!("ERR: {e}"),
+                },
                 Err(e) => format!("ERR: {e}"),
             };
 

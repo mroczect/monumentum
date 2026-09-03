@@ -107,10 +107,10 @@ impl<S: StorageEngine> Workbook<S> {
         let mut matches = Vec::new();
         for row_idx in 0..row_count {
             let actual_value = self.get_cell_value(sheet, row_idx, col_idx)?;
-            if &actual_value == value {
-                if let Some(row) = table.get(row_idx) {
-                    matches.push(row.clone());
-                }
+            if &actual_value == value
+                && let Some(row) = table.get(row_idx)
+            {
+                matches.push(row.clone());
             }
         }
         Ok(matches)
