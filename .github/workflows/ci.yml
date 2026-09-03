@@ -10,44 +10,118 @@ env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: "-D warnings"
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  strict-checks:
-    name: Strict Lint & Test
+  format:
+    name: Format
     runs-on: ubuntu-latest
-    timeout-minutes: 30
-
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: "1.96.0" # Sesuaikan dengan rust-toolchain.toml
-          components: rustfmt, clippy
+          toolchain: "1.96.0"
+          components: rustfmt
+      - run: cargo fmt --workspace -- --check
 
-      - name: Cache cargo registry and build artifacts
-        uses: Swatinem/rust-cache@v2
+  clippy:
+    name: Clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.96.0"
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
         with:
           workspaces: |
             .
             monumentum_db
             monumentum_query
+      - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
-      - name: Check code formatting
-        run: cargo fmt --all -- --check
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.96.0"
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            .
+            monumentum_db
+            monumentum_query
+      - run: cargo build --workspace --all-targets --all-features
+      - run: cargo test --workspace --all-targets --all-features
 
-      - name: Run Clippy with strict lints
-        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+  release-build:
+    name: Release Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.96.0"
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            .
+            monumentum_db
+            monumentum_query
+      - run: cargo build --workspace --all-targets --all-features --release
 
-      - name: Build (debug)
-        run: cargo build --workspace --all-targets --all-features
+  audit:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: rustsec/audit-check@v2.0.0
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Run all tests
-        run: cargo test --workspace --all-targets --all-features
+  coverage:
+    name: Code Coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.96.0"
+          components: llvm-tools-preview
+      - uses: taiki-e/install-action@cargo-llvm-cov
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            .
+            monumentum_db
+            monumentum_query
+      - run: cargo llvm-cov --workspace --all-features --lcov --output-path lcov.info
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          files: lcov.info
+          fail_ci_if_error: true
 
-      - name: Build (release) to catch optimization issues
-        run: cargo build --workspace --all-targets --all-features --release
-
-      - name: Check documentation (optional)
-        run: cargo doc --workspace --no-deps --document-private-items
+  unused-deps:
+    name: Unused Dependencies
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.96.0"
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            .
+            monumentum_db
+            monumentum_query
+      - uses: taiki-e/install-action@cargo-machete
+      - run: cargo machete
