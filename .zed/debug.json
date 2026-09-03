@@ -1,0 +1,13 @@
+[
+  {
+    "label": "Debug db_view example (GDB)",
+    "adapter": "GDB",
+    "request": "launch",
+    "program": "/home/mroczect/project/rust/monumentum/target/debug/examples/db_view",
+    "cwd": "/home/mroczect/project/rust/monumentum",
+    "build": {
+      "command": "cargo",
+      "args": ["build", "--example", "db_view"]
+    }
+  }
+]
