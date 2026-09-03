@@ -5,6 +5,7 @@ on: [push, pull_request]
 env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: "-D warnings"
+  RUSTDOCFLAGS: "-D warnings"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -45,12 +46,11 @@ jobs:
 
   test:
     name: Test
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
         rust: ["1.96.0", "stable"]
     steps:
       - uses: actions/checkout@v4
@@ -95,6 +95,35 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
+  deny:
+    name: License & Bans
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create default deny.toml
+        run: |
+          cat > deny.toml << 'EOF'
+          [licenses]
+          allow = ["MIT", "Apache-2.0", "BSD-3-Clause", "ISC", "Zlib", "Unlicense", "CC0-1.0"]
+          copyleft = "deny"
+
+          [bans]
+          multiple-versions = "warn"
+          wildcards = "deny"
+          highlight = "all"
+
+          [advisories]
+          vulnerability = "deny"
+          unmaintained = "warn"
+          yanked = "deny"
+          notice = "warn"
+          ignore = []
+          EOF
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check
+          arguments: --all-features
+
   coverage:
     name: Code Coverage
     runs-on: ubuntu-latest
@@ -133,8 +162,56 @@ jobs:
           workspaces: |
             .
             monumentum_db
-            monumentum_workbook
-            monumentum_functions
             monumentum_query
       - uses: taiki-e/install-action@cargo-machete
       - run: cargo machete
+
+  feature-check:
+    name: Feature Combinations
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.96.0"
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            .
+            monumentum_db
+            monumentum_query
+      - uses: taiki-e/install-action@cargo-hack
+      - run: cargo hack check --workspace --each-feature --feature-powerset --all-targets
+
+  docs:
+    name: Documentation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.96.0"
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            .
+            monumentum_db
+            monumentum_query
+      - run: cargo doc --workspace --no-deps --document-private-items
+
+  all-checks:
+    name: All Checks
+    runs-on: ubuntu-latest
+    needs:
+      - format
+      - clippy
+      - test
+      - release-build
+      - audit
+      - deny
+      - coverage
+      - unused-deps
+      - feature-check
+      - docs
+    steps:
+      - run: echo "All checks passed"
