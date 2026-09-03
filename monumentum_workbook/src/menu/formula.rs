@@ -20,7 +20,9 @@ impl<S: StorageEngine> Workbook<S> {
         let table = self.catalog.get_table_mut(sheet).ok_or_else(|| {
             WorkbookError::Db(monumentum_db::error::DbError::table_not_found(sheet).to_string())
         })?;
-        let row = table
+
+        let mut rows = table.rows().to_vec();
+        let row = rows
             .get_mut(row_idx)
             .ok_or(WorkbookError::InvalidReference)?;
         let cell = row
@@ -28,6 +30,7 @@ impl<S: StorageEngine> Workbook<S> {
             .get_mut(col_idx)
             .ok_or(WorkbookError::InvalidReference)?;
         *cell = Value::Formula(formula.to_string());
+        table.replace_rows(rows)?;
         Ok(())
     }
 
