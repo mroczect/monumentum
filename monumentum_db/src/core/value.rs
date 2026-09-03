@@ -158,6 +158,39 @@ impl Value {
             _ => None,
         }
     }
+
+    #[must_use]
+    pub fn as_i64(&self) -> Option<i64> {
+        match self {
+            Self::Integer(i) => Some(i.as_i64()),
+            _ => None,
+        }
+    }
+
+    #[must_use]
+    pub fn as_f64(&self) -> Option<f64> {
+        match self {
+            Self::Float(f) => Some(f.as_f64()),
+            Self::Integer(i) => Some(i.as_i64() as f64),
+            _ => None,
+        }
+    }
+
+    #[must_use]
+    pub fn as_bool(&self) -> Option<bool> {
+        match self {
+            Self::Boolean(b) => Some(*b),
+            _ => None,
+        }
+    }
+
+    #[must_use]
+    pub fn as_str(&self) -> Option<&str> {
+        match self {
+            Self::Text(t) => Some(t.as_str()),
+            _ => None,
+        }
+    }
 }
 
 impl fmt::Display for Value {
