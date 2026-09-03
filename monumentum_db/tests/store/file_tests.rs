@@ -8,7 +8,6 @@ use std::path::Path;
 
 use crate::common::TempPath;
 
-
 #[test]
 fn open_or_create_new_file() -> Result<(), DbError> {
     let temp = TempPath::new_file("monumentum_fs_test_file");
