@@ -139,31 +139,29 @@ pub fn tokenize(input: &str) -> Result<Vec<Token>, FormulaError> {
                 }
             }
             '"' => {
-                chars.next(); 
+                chars.next();
                 let mut s = String::new();
                 loop {
                     match chars.next() {
                         Some('"') => break,
-                        Some('\\') => {
-                            match chars.next() {
-                                Some('"') => s.push('"'),
-                                Some('\\') => s.push('\\'),
-                                Some('n') => s.push('\n'),
-                                Some('t') => s.push('\t'),
-                                Some('r') => s.push('\r'),
-                                Some(other) => {
-                                    return Err(FormulaError::Parse(format!(
-                                        "invalid escape sequence: \\{}",
-                                        other
-                                    )));
-                                }
-                                None => {
-                                    return Err(FormulaError::Parse(
-                                        "unterminated string literal".to_string(),
-                                    ));
-                                }
+                        Some('\\') => match chars.next() {
+                            Some('"') => s.push('"'),
+                            Some('\\') => s.push('\\'),
+                            Some('n') => s.push('\n'),
+                            Some('t') => s.push('\t'),
+                            Some('r') => s.push('\r'),
+                            Some(other) => {
+                                return Err(FormulaError::Parse(format!(
+                                    "invalid escape sequence: \\{}",
+                                    other
+                                )));
                             }
-                        }
+                            None => {
+                                return Err(FormulaError::Parse(
+                                    "unterminated string literal".to_string(),
+                                ));
+                            }
+                        },
                         Some(c) => s.push(c),
                         None => {
                             return Err(FormulaError::Parse(
