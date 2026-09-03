@@ -4,21 +4,21 @@ use core::marker::PhantomData;
 use monumentum_db::core::row::Row;
 use monumentum_db::core::value::Value;
 use monumentum_db::store::storage::StorageEngine;
+
+type Filter<'a> = Box<dyn Fn(&Row) -> bool + 'a>;
+
 #[allow(missing_debug_implementations)]
-pub struct Query<'a, S: StorageEngine, F> {
+pub struct Query<'a, S: StorageEngine> {
     workbook: &'a Workbook<S>,
     sheet: String,
     columns: Option<Vec<usize>>,
-    filter: Option<F>,
+    filter: Option<Filter<'a>>,
     sort_by: Option<(usize, bool)>,
     limit: Option<usize>,
-    _marker: PhantomData<F>,
+    _marker: PhantomData<S>,
 }
 
-impl<'a, S: StorageEngine, F> Query<'a, S, F>
-where
-    F: Fn(&Row) -> bool,
-{
+impl<'a, S: StorageEngine> Query<'a, S> {
     pub fn new(workbook: &'a Workbook<S>, sheet: impl Into<String>) -> Self {
         Self {
             workbook,
@@ -38,8 +38,8 @@ where
     }
 
     #[must_use]
-    pub fn filter(mut self, predicate: F) -> Self {
-        self.filter = Some(predicate);
+    pub fn filter(mut self, predicate: impl Fn(&Row) -> bool + 'a) -> Self {
+        self.filter = Some(Box::new(predicate));
         self
     }
 
@@ -104,7 +104,7 @@ where
         })
     }
 
-    pub fn map<G, O>(self, mut f: G) -> Map<'a, S, impl FnMut(Row) -> Result<O, WorkbookError>, F>
+    pub fn map<G, O>(self, mut f: G) -> Map<'a, S, impl FnMut(Row) -> Result<O, WorkbookError>>
     where
         G: FnMut(Row) -> O,
     {
@@ -112,7 +112,7 @@ where
     }
 
     #[must_use]
-    pub const fn try_map<G, O>(self, f: G) -> Map<'a, S, G, F>
+    pub const fn try_map<G, O>(self, f: G) -> Map<'a, S, G>
     where
         G: FnMut(Row) -> Result<O, WorkbookError>,
     {
@@ -124,15 +124,14 @@ where
 }
 
 #[allow(missing_debug_implementations)]
-pub struct Map<'a, S: StorageEngine, F, A> {
-    inner: Query<'a, S, A>,
+pub struct Map<'a, S: StorageEngine, F> {
+    inner: Query<'a, S>,
     mapper: F,
 }
 
-impl<'a, S: StorageEngine, F, O, A> Map<'a, S, F, A>
+impl<'a, S: StorageEngine, F, O> Map<'a, S, F>
 where
     F: FnMut(Row) -> Result<O, WorkbookError>,
-    A: Fn(&Row) -> bool,
 {
     pub fn fetch_all(mut self) -> Result<Vec<O>, WorkbookError> {
         let rows = self.inner.fetch_all()?;
@@ -148,17 +147,14 @@ where
         row.map(|r| (self.mapper)(r)).transpose()
     }
 
-    pub fn map<G, P>(self, mut g: G) -> Map<'a, S, impl FnMut(Row) -> Result<P, WorkbookError>, A>
+    pub fn map<G, P>(self, mut g: G) -> Map<'a, S, impl FnMut(Row) -> Result<P, WorkbookError>>
     where
         G: FnMut(O) -> P,
     {
         self.try_map(move |data| Ok(g(data)))
     }
 
-    pub fn try_map<G, P>(
-        self,
-        mut g: G,
-    ) -> Map<'a, S, impl FnMut(Row) -> Result<P, WorkbookError>, A>
+    pub fn try_map<G, P>(self, mut g: G) -> Map<'a, S, impl FnMut(Row) -> Result<P, WorkbookError>>
     where
         G: FnMut(O) -> Result<P, WorkbookError>,
     {
