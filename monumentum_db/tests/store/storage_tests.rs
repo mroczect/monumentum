@@ -9,7 +9,6 @@ use std::fs;
 
 use crate::common::TempPath;
 
-
 fn create_sample_schema() -> Result<TableSchema, DbError> {
     let mut id_col = ColumnDef::new("id", DataType::Integer);
     id_col.set_primary_key(true);
@@ -189,12 +188,12 @@ fn file_storage_ignores_lower_sequence_wal_record() -> Result<(), DbError> {
     let mut storage = FileStorage::open(temp.path())?;
 
     let catalog_v1 = create_sample_catalog()?;
-    storage.save_catalog(&catalog_v1)?; 
+    storage.save_catalog(&catalog_v1)?;
 
     let catalog_v2 = create_sample_catalog_with_row()?;
-    storage.save_catalog(&catalog_v2)?; 
+    storage.save_catalog(&catalog_v2)?;
 
-    storage.checkpoint()?; 
+    storage.checkpoint()?;
 
     close_storage(storage)?;
 
