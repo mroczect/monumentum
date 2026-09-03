@@ -190,7 +190,6 @@ pub fn read_records(file: &mut File) -> Result<Vec<Vec<u8>>, DbError> {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::crc32;
