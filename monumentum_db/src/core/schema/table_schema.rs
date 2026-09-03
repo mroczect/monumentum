@@ -90,4 +90,11 @@ impl TableSchema {
         }
         Ok(())
     }
+
+    pub fn get_column_by_index<I>(&self, index: I) -> Option<&ColumnDef>
+    where
+        I: crate::core::schema::column::ColumnIndex<Self>,
+    {
+        index.index(self).ok().map(|i| &self.columns[i])
+    }
 }

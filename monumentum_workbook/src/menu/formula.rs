@@ -18,7 +18,7 @@ impl<S: StorageEngine> Workbook<S> {
     ) -> Result<(), WorkbookError> {
         self.ensure_writable(sheet)?;
         let table = self.catalog.get_table_mut(sheet).ok_or_else(|| {
-            WorkbookError::Db(monumentum_db::error::DbError::table_not_found(sheet).to_string())
+            WorkbookError::Db(monumentum_db::error::DbError::table_not_found(sheet))
         })?;
 
         table.set_cell(row_idx, col_idx, Value::Formula(formula.to_string()))?;
@@ -45,7 +45,7 @@ impl<S: StorageEngine> Workbook<S> {
         depth: &RefCell<usize>,
     ) -> Result<Value, WorkbookError> {
         let table = self.catalog.get_table(sheet).ok_or_else(|| {
-            WorkbookError::Db(monumentum_db::error::DbError::table_not_found(sheet).to_string())
+            WorkbookError::Db(monumentum_db::error::DbError::table_not_found(sheet))
         })?;
         let row = table.get(row_idx).ok_or(WorkbookError::InvalidReference)?;
         let value = row.get(col_idx).ok_or(WorkbookError::InvalidReference)?;
@@ -58,9 +58,9 @@ impl<S: StorageEngine> Workbook<S> {
                     return Err(WorkbookError::CircularReference);
                 }
                 if *depth.borrow() >= MAX_EVAL_DEPTH {
-                    return Err(WorkbookError::Formula(
+                    return Err(WorkbookError::Formula(FormulaError::Eval(
                         "maximum evaluation depth exceeded".to_string(),
-                    ));
+                    )));
                 }
                 let _ = stack.borrow_mut().insert(cell_key.clone());
                 {
@@ -114,14 +114,15 @@ impl<S: StorageEngine> FormulaContext for WorkbookFormulaContext<'_, S> {
         self.workbook
             .evaluate_cell(sheet, row_idx, col_idx, self.stack, self.depth)
             .map_err(|e| match e {
-                WorkbookError::Formula(msg) => FormulaError::Eval(msg),
+                WorkbookError::Formula(msg) => FormulaError::Eval(msg.to_string()),
+
                 WorkbookError::CircularReference => {
                     FormulaError::CircularReference(format!("{}", cell))
                 }
                 WorkbookError::InvalidReference => {
                     FormulaError::InvalidReference(format!("{}", cell))
                 }
-                WorkbookError::Db(msg) => FormulaError::Eval(msg),
+                WorkbookError::Db(msg) => FormulaError::Eval(msg.to_string()),
                 other => FormulaError::Eval(other.to_string()),
             })
     }

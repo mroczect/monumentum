@@ -1,4 +1,5 @@
 use crate::{Workbook, WorkbookError};
+use monumentum_db::core::row::Row;
 use monumentum_db::core::value::Value;
 use monumentum_db::store::storage::StorageEngine;
 
@@ -28,7 +29,7 @@ impl<S: StorageEngine> Workbook<S> {
     ) -> Result<(), WorkbookError> {
         self.ensure_writable(sheet)?;
         let table = self.catalog.get_table_mut(sheet).ok_or_else(|| {
-            WorkbookError::Db(monumentum_db::error::DbError::table_not_found(sheet).to_string())
+            WorkbookError::Db(monumentum_db::error::DbError::table_not_found(sheet))
         })?;
 
         let mut rows = table.rows().to_vec();
@@ -54,7 +55,7 @@ impl<S: StorageEngine> Workbook<S> {
 
         let positions = {
             let table = self.catalog.get_table(sheet).ok_or_else(|| {
-                WorkbookError::Db(monumentum_db::error::DbError::table_not_found(sheet).to_string())
+                WorkbookError::Db(monumentum_db::error::DbError::table_not_found(sheet))
             })?;
             let mut pos = Vec::new();
             let col_count = table.schema().columns().len();
@@ -70,7 +71,7 @@ impl<S: StorageEngine> Workbook<S> {
         };
 
         let table_mut = self.catalog.get_table_mut(sheet).ok_or_else(|| {
-            WorkbookError::Db(monumentum_db::error::DbError::table_not_found(sheet).to_string())
+            WorkbookError::Db(monumentum_db::error::DbError::table_not_found(sheet))
         })?;
 
         let mut count: usize = 0;
@@ -88,7 +89,7 @@ impl<S: StorageEngine> Workbook<S> {
         value: &Value,
     ) -> Result<Vec<(usize, usize)>, WorkbookError> {
         let table = self.catalog.get_table(sheet).ok_or_else(|| {
-            WorkbookError::Db(monumentum_db::error::DbError::table_not_found(sheet).to_string())
+            WorkbookError::Db(monumentum_db::error::DbError::table_not_found(sheet))
         })?;
         let mut matches = Vec::new();
         for (row_idx, row) in table.rows().iter().enumerate() {
@@ -99,5 +100,37 @@ impl<S: StorageEngine> Workbook<S> {
             }
         }
         Ok(matches)
+    }
+
+    pub fn get_cell_by_name(
+        &self,
+        sheet: &str,
+        row_idx: usize,
+        col_name: &str,
+    ) -> Result<Value, WorkbookError> {
+        let table = self.sheet(sheet)?;
+        let col_idx = table.schema().column_index(col_name).ok_or_else(|| {
+            WorkbookError::Db(monumentum_db::error::DbError::column_not_found(col_name))
+        })?;
+        self.get_cell_value(sheet, row_idx, col_idx)
+    }
+
+    pub fn set_cell_by_name(
+        &mut self,
+        sheet: &str,
+        row_idx: usize,
+        col_name: &str,
+        value: Value,
+    ) -> Result<(), WorkbookError> {
+        let table = self.sheet(sheet)?;
+        let col_idx = table.schema().column_index(col_name).ok_or_else(|| {
+            WorkbookError::Db(monumentum_db::error::DbError::column_not_found(col_name))
+        })?;
+        self.set_cell(sheet, row_idx, col_idx, value)
+    }
+
+    pub fn get_row(&self, sheet: &str, row_idx: usize) -> Result<&Row, WorkbookError> {
+        let table = self.sheet(sheet)?;
+        table.get(row_idx).ok_or(WorkbookError::InvalidReference)
     }
 }

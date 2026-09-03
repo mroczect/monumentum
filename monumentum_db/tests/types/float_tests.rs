@@ -1,6 +1,11 @@
 use monumentum_db::error::DbError;
 use monumentum_db::types::Float;
+use proptest::prelude::*;
 use std::cmp::Ordering;
+
+fn finite_float_strategy() -> impl Strategy<Value = f64> {
+    proptest::prelude::any::<f64>().prop_filter("must be finite", |f| f.is_finite())
+}
 
 #[test]
 fn try_new_accepts_finite_positive() -> Result<(), DbError> {
@@ -154,4 +159,58 @@ fn try_from_str_invalid() {
 fn try_from_str_non_finite() {
     assert!(Float::try_from("NaN").is_err());
     assert!(Float::try_from("inf").is_err());
+}
+
+proptest! {
+    #![proptest_config(proptest::test_runner::Config::with_cases(64))]
+
+    #[test]
+    fn try_new_finite_roundtrip(f in finite_float_strategy()) {
+        let result = Float::try_new(f);
+        prop_assert!(result.is_ok());
+        if let Ok(float) = result {
+            prop_assert_eq!(float.as_f64(), f);
+        }
+    }
+
+    #[test]
+    fn total_cmp_antisymmetric(
+        a in finite_float_strategy(),
+        b in finite_float_strategy(),
+    ) {
+        let fa_res = Float::try_new(a);
+        let fb_res = Float::try_new(b);
+        prop_assert!(fa_res.is_ok());
+        prop_assert!(fb_res.is_ok());
+
+        if let (Ok(fa), Ok(fb)) = (fa_res, fb_res) {
+            let ord = fa.total_cmp(&fb);
+            let rev = fb.total_cmp(&fa);
+            prop_assert_eq!(ord.reverse(), rev);
+        }
+    }
+
+    #[test]
+    fn to_le_bytes_roundtrip(f in finite_float_strategy()) {
+        let float_res = Float::try_new(f);
+        prop_assert!(float_res.is_ok());
+        if let Ok(float) = float_res {
+            let bytes = float.to_le_bytes();
+            let restored = Float::try_from_le_bytes(bytes);
+            prop_assert!(restored.is_ok());
+            if let Ok(restored_float) = restored {
+                prop_assert_eq!(float, restored_float);
+            }
+        }
+    }
+
+    #[test]
+    fn try_from_str_roundtrip(f in finite_float_strategy()) {
+        let s = format!("{}", f);
+        let result = Float::try_from(s.as_str());
+        prop_assert!(result.is_ok());
+        if let Ok(float) = result {
+            prop_assert_eq!(float.as_f64(), f);
+        }
+    }
 }

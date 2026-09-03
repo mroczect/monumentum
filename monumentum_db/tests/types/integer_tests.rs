@@ -1,5 +1,6 @@
 use monumentum_db::error::DbError;
 use monumentum_db::types::Integer;
+use proptest::prelude::*;
 
 #[test]
 fn new_basic_values() {
@@ -153,4 +154,62 @@ fn try_from_str_invalid() {
 #[test]
 fn try_from_str_overflow() {
     assert!(Integer::try_from("9223372036854775808").is_err());
+}
+
+proptest! {
+    #![proptest_config(proptest::test_runner::Config::with_cases(64))]
+
+    #[test]
+    fn checked_operations_agree_with_primitive(
+        a in proptest::prelude::any::<i64>(),
+        b in proptest::prelude::any::<i64>(),
+    ) {
+        let ia = Integer::new(a);
+        let ib = Integer::new(b);
+
+        let add_res = ia.checked_add(ib);
+        let expected_add = a.checked_add(b).map(Integer::new);
+        prop_assert_eq!(add_res, expected_add);
+
+        let sub_res = ia.checked_sub(ib);
+        let expected_sub = a.checked_sub(b).map(Integer::new);
+        prop_assert_eq!(sub_res, expected_sub);
+
+        let mul_res = ia.checked_mul(ib);
+        let expected_mul = a.checked_mul(b).map(Integer::new);
+        prop_assert_eq!(mul_res, expected_mul);
+
+        if b != 0 && !(a == i64::MIN && b == -1) {
+            let div_res = ia.checked_div(ib);
+            let expected_div = a.checked_div(b).map(Integer::new);
+            prop_assert_eq!(div_res, expected_div);
+        } else {
+            prop_assert_eq!(ia.checked_div(ib), None);
+        }
+    }
+
+    #[test]
+    fn to_from_le_bytes_roundtrip(n in proptest::prelude::any::<i64>()) {
+        let integer = Integer::new(n);
+        let bytes = integer.to_le_bytes();
+        let restored = Integer::from_le_bytes(bytes);
+        prop_assert_eq!(integer, restored);
+    }
+
+    #[test]
+    fn try_from_str_roundtrip_valid(n in proptest::prelude::any::<i64>()) {
+        let s = n.to_string();
+        let result = Integer::try_from(s.as_str());
+        prop_assert!(result.is_ok());
+        if let Ok(integer) = result {
+            prop_assert_eq!(integer.as_i64(), n);
+        }
+    }
+
+    #[test]
+    fn try_from_str_invalid_random(s in ".*") {
+        let is_valid = s.parse::<i64>().is_ok();
+        let result = Integer::try_from(s.as_str());
+        prop_assert_eq!(result.is_ok(), is_valid);
+    }
 }

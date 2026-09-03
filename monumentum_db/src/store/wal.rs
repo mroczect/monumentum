@@ -5,6 +5,9 @@ use std::fs::File;
 use std::io::{Seek, SeekFrom};
 use std::path::Path;
 
+#[cfg(unix)]
+use std::os::unix::io::AsRawFd;
+
 #[derive(Debug)]
 pub struct Wal {
     file: Option<File>,
@@ -13,10 +16,17 @@ pub struct Wal {
 impl Wal {
     pub fn open(path: &Path) -> Result<Self, DbError> {
         let file = open_or_create(path)?;
+
         #[cfg(unix)]
         {
-            file.lock()?;
+            let fd = file.as_raw_fd();
+            let ret = unsafe { libc::flock(fd, libc::LOCK_EX | libc::LOCK_NB) };
+            if ret != 0 {
+                let err = std::io::Error::last_os_error();
+                return Err(DbError::Io(err));
+            }
         }
+
         Ok(Self { file: Some(file) })
     }
 
@@ -33,10 +43,10 @@ impl Wal {
     pub fn sync(&self) -> Result<(), DbError> {
         if let Some(file) = &self.file {
             sync_file(file)?;
+            Ok(())
         } else {
-            return Err(DbError::invalid_operation("WAL is already unlocked"));
+            Err(DbError::invalid_operation("WAL is already unlocked"))
         }
-        Ok(())
     }
 
     pub fn read_all(&mut self) -> Result<Vec<Vec<u8>>, DbError> {
@@ -62,7 +72,12 @@ impl Wal {
         if let Some(file) = self.file.take() {
             #[cfg(unix)]
             {
-                file.unlock()?;
+                let fd = file.as_raw_fd();
+                let ret = unsafe { libc::flock(fd, libc::LOCK_UN) };
+                if ret != 0 {
+                    let err = std::io::Error::last_os_error();
+                    return Err(DbError::Io(err));
+                }
             }
         }
         Ok(())
@@ -74,7 +89,10 @@ impl Drop for Wal {
         if let Some(file) = self.file.take() {
             #[cfg(unix)]
             {
-                let _ = file.unlock();
+                let fd = file.as_raw_fd();
+                unsafe {
+                    libc::flock(fd, libc::LOCK_UN);
+                }
             }
         }
     }

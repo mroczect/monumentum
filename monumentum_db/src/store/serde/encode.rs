@@ -1,125 +1,112 @@
-use super::{FORMAT_VERSION, encode_data_type, encode_value, write_bytes, write_u8, write_u32};
+use super::Encode;
 use crate::core::catalog::Catalog;
 use crate::core::row::Row;
-use crate::core::schema::column::{ColumnDef, ComparisonOp};
+use crate::core::schema::column::{ColumnDef, ComparisonOp, DataType};
 use crate::core::schema::table_schema::TableSchema;
 use crate::core::table::Table;
 use crate::error::DbError;
 
-pub fn encode_column_def(col: &ColumnDef) -> Result<Vec<u8>, DbError> {
-    let mut buf = Vec::new();
-    write_bytes(&mut buf, col.name().as_bytes());
-    write_u8(&mut buf, encode_data_type(col.data_type()));
-    write_u8(&mut buf, col.is_nullable() as u8);
-    write_u8(&mut buf, col.is_primary_key() as u8);
-    write_u8(&mut buf, col.is_unique() as u8);
-
-    match col.default_value() {
-        Some(v) => {
-            write_u8(&mut buf, 1);
-            let val_bytes = encode_value(v);
-            write_bytes(&mut buf, &val_bytes);
-        }
-        None => write_u8(&mut buf, 0),
+impl Encode for DataType {
+    fn encode(&self, buf: &mut Vec<u8>) -> Result<(), DbError> {
+        let tag: u8 = match self {
+            Self::Null => 0,
+            Self::Integer => 1,
+            Self::Float => 2,
+            Self::Text => 3,
+            Self::Blob => 4,
+            Self::Boolean => 5,
+        };
+        tag.encode(buf)
     }
-
-    match col.check_constraint() {
-        Some(cc) => {
-            write_u8(&mut buf, 1);
-            write_bytes(&mut buf, cc.column.as_bytes());
-            let op_tag = match cc.op {
-                ComparisonOp::Eq => 0,
-                ComparisonOp::NotEq => 1,
-                ComparisonOp::Lt => 2,
-                ComparisonOp::Lte => 3,
-                ComparisonOp::Gt => 4,
-                ComparisonOp::Gte => 5,
-            };
-            write_u8(&mut buf, op_tag);
-            let val_bytes = encode_value(&cc.value);
-            write_bytes(&mut buf, &val_bytes);
-        }
-        None => write_u8(&mut buf, 0),
-    }
-
-    match col.foreign_key() {
-        Some(fk) => {
-            write_u8(&mut buf, 1);
-            write_bytes(&mut buf, fk.table.as_bytes());
-            write_bytes(&mut buf, fk.column.as_bytes());
-        }
-        None => write_u8(&mut buf, 0),
-    }
-
-    match col.allowed_values() {
-        Some(values) => {
-            write_u8(&mut buf, 1);
-            let count = u32::try_from(values.len())
-                .map_err(|_| DbError::invalid_operation("too many allowed values"))?;
-            write_u32(&mut buf, count);
-            for v in values {
-                let val_bytes = encode_value(v);
-                write_bytes(&mut buf, &val_bytes);
-            }
-        }
-        None => write_u8(&mut buf, 0),
-    }
-
-    Ok(buf)
 }
 
-pub fn encode_table_schema(schema: &TableSchema) -> Result<Vec<u8>, DbError> {
-    let mut buf = Vec::new();
-    write_bytes(&mut buf, schema.name().as_bytes());
-    let col_count = u32::try_from(schema.columns().len())
-        .map_err(|_| DbError::invalid_operation("too many columns"))?;
-    write_u32(&mut buf, col_count);
-    for col in schema.columns() {
-        let col_bytes = encode_column_def(col)?;
-        write_bytes(&mut buf, &col_bytes);
+impl Encode for ComparisonOp {
+    fn encode(&self, buf: &mut Vec<u8>) -> Result<(), DbError> {
+        let tag: u8 = match self {
+            Self::Eq => 0,
+            Self::NotEq => 1,
+            Self::Lt => 2,
+            Self::Lte => 3,
+            Self::Gt => 4,
+            Self::Gte => 5,
+        };
+        tag.encode(buf)
     }
-    Ok(buf)
 }
 
-pub fn encode_row(row: &Row) -> Result<Vec<u8>, DbError> {
-    let mut buf = Vec::new();
-    let value_count =
-        u32::try_from(row.len()).map_err(|_| DbError::invalid_operation("row too large"))?;
-    write_u32(&mut buf, value_count);
-    for value in row.values() {
-        let value_bytes = encode_value(value);
-        write_bytes(&mut buf, &value_bytes);
+impl Encode for ColumnDef {
+    fn encode(&self, buf: &mut Vec<u8>) -> Result<(), DbError> {
+        self.name().as_bytes().encode(buf)?;
+        self.data_type().encode(buf)?;
+        self.is_nullable().encode(buf)?;
+        self.is_primary_key().encode(buf)?;
+        self.is_unique().encode(buf)?;
+
+        self.default_value().encode(buf)?;
+        self.check_constraint().encode(buf)?;
+        self.foreign_key().encode(buf)?;
+        self.allowed_values().encode(buf)?;
+
+        Ok(())
     }
-    Ok(buf)
 }
 
-pub fn encode_table(table: &Table) -> Result<Vec<u8>, DbError> {
-    let mut buf = Vec::new();
-    let schema_bytes = encode_table_schema(table.schema())?;
-    write_bytes(&mut buf, &schema_bytes);
-
-    write_u8(&mut buf, table.is_read_only() as u8);
-
-    let row_count =
-        u32::try_from(table.len()).map_err(|_| DbError::invalid_operation("too many rows"))?;
-    write_u32(&mut buf, row_count);
-    for row in table.rows() {
-        let row_bytes = encode_row(row)?;
-        write_bytes(&mut buf, &row_bytes);
+impl Encode for crate::core::schema::column::CheckConstraint {
+    fn encode(&self, buf: &mut Vec<u8>) -> Result<(), DbError> {
+        self.column.as_bytes().encode(buf)?;
+        self.op.encode(buf)?;
+        self.value.encode(buf)
     }
-    Ok(buf)
 }
 
-pub fn encode_catalog(catalog: &Catalog) -> Result<Vec<u8>, DbError> {
-    let mut buf = Vec::new();
-    write_u32(&mut buf, FORMAT_VERSION);
-    let table_count =
-        u32::try_from(catalog.len()).map_err(|_| DbError::invalid_operation("too many tables"))?;
-    write_u32(&mut buf, table_count);
-    for (name, table) in catalog.tables() {
-        write_bytes(&mut buf, name.as_bytes());
-        let table_bytes = encode_table(table)?;
-        write_bytes(&mut buf, &table_bytes);
+impl Encode for crate::core::schema::column::ForeignKey {
+    fn encode(&self, buf: &mut Vec<u8>) -> Result<(), DbError> {
+        self.table.as_bytes().encode(buf)?;
+        self.column.as_bytes().encode(buf)
     }
-    Ok(buf)
+}
+
+impl Encode for TableSchema {
+    fn encode(&self, buf: &mut Vec<u8>) -> Result<(), DbError> {
+        self.name().as_bytes().encode(buf)?;
+        (self.columns().len() as u32).encode(buf)?;
+        for col in self.columns() {
+            col.encode(buf)?;
+        }
+        Ok(())
+    }
+}
+
+impl Encode for Row {
+    fn encode(&self, buf: &mut Vec<u8>) -> Result<(), DbError> {
+        (self.len() as u32).encode(buf)?;
+        for value in self.values() {
+            value.encode(buf)?;
+        }
+        Ok(())
+    }
+}
+
+impl Encode for Table {
+    fn encode(&self, buf: &mut Vec<u8>) -> Result<(), DbError> {
+        self.schema().encode(buf)?;
+        self.is_read_only().encode(buf)?;
+        (self.len() as u32).encode(buf)?;
+        for row in self.rows() {
+            row.encode(buf)?;
+        }
+        Ok(())
+    }
+}
+
+impl Encode for Catalog {
+    fn encode(&self, buf: &mut Vec<u8>) -> Result<(), DbError> {
+        super::FORMAT_VERSION.encode(buf)?;
+        (self.len() as u32).encode(buf)?;
+        for (name, table) in self.tables() {
+            name.as_bytes().encode(buf)?;
+            table.encode(buf)?;
+        }
+        Ok(())
+    }
 }

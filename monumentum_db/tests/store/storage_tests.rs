@@ -6,8 +6,11 @@ use monumentum_db::core::value::Value;
 use monumentum_db::error::DbError;
 use monumentum_db::store::storage::{FileStorage, InMemoryStorage, StorageEngine};
 use std::fs;
+use std::fs::OpenOptions;
+use std::io::Write;
 
 use crate::common::TempPath;
+use proptest::prelude::*;
 
 fn create_sample_schema() -> Result<TableSchema, DbError> {
     let mut id_col = ColumnDef::new("id", DataType::Integer);
@@ -87,9 +90,7 @@ fn in_memory_storage_mutate_via_catalog() -> Result<(), DbError> {
 fn file_storage_open_creates_new_files() -> Result<(), DbError> {
     let temp = TempPath::new_file("monumentum_storage_test");
     let storage = FileStorage::open(temp.path())?;
-
     assert!(temp.path().with_extension("wal").exists());
-
     close_storage(storage)?;
     Ok(())
 }
@@ -213,4 +214,162 @@ fn file_storage_close_unlocks_file() -> Result<(), DbError> {
     let storage2 = FileStorage::open(temp.path())?;
     close_storage(storage2)?;
     Ok(())
+}
+
+#[test]
+fn file_storage_open_fails_when_already_locked() -> Result<(), DbError> {
+    let temp = TempPath::new_file("monumentum_storage_test_lock");
+    let storage = FileStorage::open(temp.path())?;
+
+    let result = FileStorage::open(temp.path());
+    assert!(result.is_err());
+    if let Err(e) = result {
+        assert!(matches!(e, DbError::Io(_)));
+    }
+
+    close_storage(storage)?;
+    let storage2 = FileStorage::open(temp.path())?;
+    close_storage(storage2)?;
+    Ok(())
+}
+
+#[test]
+fn file_storage_open_with_corrupt_snapshot_returns_error() -> Result<(), DbError> {
+    let temp = TempPath::new_file("monumentum_storage_test_corrupt_snapshot");
+    fs::write(temp.path(), b"not a valid snapshot")?;
+
+    let result = FileStorage::open(temp.path());
+    assert!(result.is_err());
+    if let Err(e) = result {
+        assert!(e.to_string().contains("Data corruption"));
+    }
+    Ok(())
+}
+
+#[test]
+fn file_storage_open_with_oversized_snapshot_returns_error() -> Result<(), DbError> {
+    let temp = TempPath::new_file("monumentum_storage_test_oversized");
+    let file = OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(temp.path())?;
+    file.set_len(256 * 1024 * 1024 + 1)?;
+    file.sync_all()?;
+    drop(file);
+
+    let result = FileStorage::open(temp.path());
+    assert!(result.is_err());
+    if let Err(e) = result {
+        assert_eq!(e.to_string(), "Data corruption: snapshot file too large");
+    }
+    Ok(())
+}
+
+#[test]
+fn file_storage_open_with_corrupt_wal_returns_error() -> Result<(), DbError> {
+    let temp = TempPath::new_file("monumentum_storage_test_corrupt_wal");
+    let mut storage = FileStorage::open(temp.path())?;
+    let catalog = create_sample_catalog()?;
+    storage.save_catalog(&catalog)?;
+    storage.checkpoint()?;
+    close_storage(storage)?;
+
+    let wal_path = temp.path().with_extension("wal");
+    let mut file = OpenOptions::new().append(true).open(&wal_path)?;
+    file.write_all(b"\x00\x01\x02\x03")?;
+    file.sync_all()?;
+    drop(file);
+
+    let result = FileStorage::open(temp.path());
+    assert!(result.is_err());
+    if let Err(e) = result {
+        assert!(e.to_string().contains("Data corruption"));
+    }
+    Ok(())
+}
+
+#[test]
+fn file_storage_reload_from_disk_returns_latest_catalog() -> Result<(), DbError> {
+    let temp = TempPath::new_file("monumentum_storage_test_reload");
+    let mut storage = FileStorage::open(temp.path())?;
+
+    let catalog_v1 = create_sample_catalog()?;
+    storage.save_catalog(&catalog_v1)?;
+    storage.checkpoint()?;
+
+    let catalog_v2 = create_sample_catalog_with_row()?;
+    storage.save_catalog(&catalog_v2)?;
+
+    let loaded = storage.reload_from_disk()?;
+    assert_eq!(loaded, catalog_v2);
+
+    close_storage(storage)?;
+    Ok(())
+}
+
+#[test]
+fn file_storage_reload_from_disk_uses_snapshot_only_when_wal_empty() -> Result<(), DbError> {
+    let temp = TempPath::new_file("monumentum_storage_test_reload_empty_wal");
+    let mut storage = FileStorage::open(temp.path())?;
+    let catalog = create_sample_catalog_with_row()?;
+    storage.save_catalog(&catalog)?;
+    storage.checkpoint()?;
+
+    let loaded = storage.reload_from_disk()?;
+    assert_eq!(loaded, catalog);
+    close_storage(storage)?;
+    Ok(())
+}
+
+#[test]
+fn file_storage_sync_succeeds_after_writes() -> Result<(), DbError> {
+    let temp = TempPath::new_file("monumentum_storage_test_sync");
+    let mut storage = FileStorage::open(temp.path())?;
+    storage.save_catalog(&create_sample_catalog()?)?;
+    storage.sync()?;
+    close_storage(storage)?;
+    Ok(())
+}
+
+#[test]
+fn storage_get_table_missing_returns_none() -> Result<(), DbError> {
+    let mut mem = InMemoryStorage::new();
+    let catalog = create_sample_catalog()?;
+    mem.save_catalog(&catalog)?;
+    assert!(mem.get_table("nonexistent").is_none());
+
+    let temp = TempPath::new_file("monumentum_storage_test_missing_table");
+    let mut file = FileStorage::open(temp.path())?;
+    file.save_catalog(&catalog)?;
+    assert!(file.get_table("nonexistent").is_none());
+    close_storage(file)?;
+    Ok(())
+}
+
+proptest! {
+    #![proptest_config(proptest::test_runner::Config::with_cases(32))]
+
+    #[test]
+    fn file_storage_persists_random_catalog(
+        rows in proptest::collection::vec(any::<i64>(), 0..20),
+    ) {
+        let mut catalog = create_sample_catalog().unwrap();
+        if let Some(table) = catalog.get_table_mut("users") {
+            for v in &rows {
+                table.insert(Row::new(vec![Value::from(*v)])).unwrap();
+            }
+        }
+
+        let temp = TempPath::new_file("monumentum_storage_test_prop");
+        let mut storage = FileStorage::open(temp.path()).unwrap();
+        storage.save_catalog(&catalog).unwrap();
+        close_storage(storage).unwrap();
+
+        let mut storage2 = FileStorage::open(temp.path()).unwrap();
+        let loaded = storage2.load_catalog().unwrap();
+        close_storage(storage2).unwrap();
+
+        prop_assert_eq!(catalog, loaded);
+    }
 }

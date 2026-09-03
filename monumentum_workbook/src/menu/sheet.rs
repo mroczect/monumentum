@@ -37,7 +37,7 @@ impl<S: StorageEngine> Workbook<S> {
         }
 
         let table = self.catalog.get_table(old_name).ok_or_else(|| {
-            WorkbookError::Db(monumentum_db::error::DbError::table_not_found(old_name).to_string())
+            WorkbookError::Db(monumentum_db::error::DbError::table_not_found(old_name))
         })?;
 
         let schema = table.schema().clone();
@@ -56,7 +56,7 @@ impl<S: StorageEngine> Workbook<S> {
     pub fn insert_row(&mut self, sheet: &str, values: Vec<Value>) -> Result<(), WorkbookError> {
         self.ensure_writable(sheet)?;
         let table = self.catalog.get_table_mut(sheet).ok_or_else(|| {
-            WorkbookError::Db(monumentum_db::error::DbError::table_not_found(sheet).to_string())
+            WorkbookError::Db(monumentum_db::error::DbError::table_not_found(sheet))
         })?;
         let row = Row::new(values);
         table.insert(row)?;
@@ -66,7 +66,7 @@ impl<S: StorageEngine> Workbook<S> {
     pub fn delete_row(&mut self, sheet: &str, index: usize) -> Result<(), WorkbookError> {
         self.ensure_writable(sheet)?;
         let table = self.catalog.get_table_mut(sheet).ok_or_else(|| {
-            WorkbookError::Db(monumentum_db::error::DbError::table_not_found(sheet).to_string())
+            WorkbookError::Db(monumentum_db::error::DbError::table_not_found(sheet))
         })?;
         let mut rows = table.rows().to_vec();
         if index >= rows.len() {
@@ -80,7 +80,7 @@ impl<S: StorageEngine> Workbook<S> {
     pub fn clear_sheet(&mut self, sheet: &str) -> Result<(), WorkbookError> {
         self.ensure_writable(sheet)?;
         let table = self.catalog.get_table_mut(sheet).ok_or_else(|| {
-            WorkbookError::Db(monumentum_db::error::DbError::table_not_found(sheet).to_string())
+            WorkbookError::Db(monumentum_db::error::DbError::table_not_found(sheet))
         })?;
         table.replace_rows(Vec::new())?;
         Ok(())

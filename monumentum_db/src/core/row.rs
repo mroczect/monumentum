@@ -17,8 +17,11 @@ impl Row {
     }
 
     #[must_use]
-    pub fn get(&self, index: usize) -> Option<&Value> {
-        self.values.get(index)
+    pub fn get<I>(&self, index: I) -> Option<&Value>
+    where
+        I: crate::core::schema::column::ColumnIndex<Self>,
+    {
+        index.index(self).ok().and_then(|i| self.values.get(i))
     }
 
     #[must_use]

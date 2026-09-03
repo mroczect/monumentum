@@ -8,6 +8,5 @@ pub mod wal;
 pub use append_log::*;
 pub use file::*;
 pub use recovery::*;
-pub use serde::*;
 pub use storage::*;
 pub use wal::*;

@@ -122,33 +122,37 @@ fn main() -> Result<(), Box<dyn core::error::Error>> {
     }
     println!();
 
-    println!("=== 6. Sorting ===");
-    wb.sort_sheet("Data", 1, true)?;
+    println!("=== 6. Sorting dengan Query Builder ===");
+    let sorted_asc = wb.query("Data").order_by(1, true).fetch_all()?;
     println!("Data setelah sort ascending (Nilai):");
-    for r in 0..wb.row_count("Data")? {
-        let nama = wb.get_cell_value("Data", r, 0)?;
-        let nilai = wb.get_cell_value("Data", r, 1)?;
+    for row in &sorted_asc {
+        let nama = row.get(0).unwrap_or(&Value::Null);
+        let nilai = row.get(1).unwrap_or(&Value::Null);
         println!("  {nama:?}: {nilai:?}");
     }
 
-    wb.sort_sheet("Data", 1, false)?;
+    let sorted_desc = wb.query("Data").order_by(1, false).fetch_all()?;
     println!("Data setelah sort descending (Nilai):");
-    for r in 0..wb.row_count("Data")? {
-        let nama = wb.get_cell_value("Data", r, 0)?;
-        let nilai = wb.get_cell_value("Data", r, 1)?;
+    for row in &sorted_desc {
+        let nama = row.get(0).unwrap_or(&Value::Null);
+        let nilai = row.get(1).unwrap_or(&Value::Null);
         println!("  {nama:?}: {nilai:?}");
     }
     println!();
 
-    println!("=== 7. Filtering ===");
-    let filtered = wb.filter_sheet("Data", 1, &Value::from(90_i64))?;
+    println!("=== 7. Filtering dengan Query Builder ===");
+    let nilai_target = Value::from(90_i64);
+    let filtered = wb
+        .query("Data")
+        .filter(|row| row.get(1).is_some_and(|v| v == &nilai_target))
+        .fetch_all()?;
     println!("Baris dengan Nilai = 90:");
     for row in &filtered {
         println!("  {:?}", row.values());
     }
     println!();
 
-    println!("=== 8. Distinct values ===");
+    println!("=== 8. Distinct values (tetap memakai API khusus) ===");
     let distinct = wb.distinct_values("Data", 1)?;
     println!("Nilai unik pada kolom Nilai: {distinct:?}\n");
 

@@ -1,8 +1,11 @@
 use core::error::Error;
 use core::fmt;
-use monumentum_db::error::DbError;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+use monumentum_db::error::{DbError, ErrorKind, MonumentumError};
+use monumentum_query::formula::FormulaError;
+
+#[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub enum WorkbookError {
     CellTooNarrow,
     FormatOutOfRange,
@@ -36,8 +39,8 @@ pub enum WorkbookError {
     ArraySizeExceeded,
     UnsupportedInlineArrayContent,
     ExternalContentDisabled,
-    Db(String),
-    Formula(String),
+    Db(DbError),
+    Formula(FormulaError),
     FileExists,
     InvalidExtension,
 }
@@ -83,24 +86,240 @@ impl fmt::Display for WorkbookError {
                 write!(f, "Err:539: unsupported inline array content")
             }
             Self::ExternalContentDisabled => write!(f, "Err:540: external content disabled"),
-            Self::Db(msg) => write!(f, "database error: {msg}"),
-            Self::Formula(msg) => write!(f, "formula error: {msg}"),
+            Self::Db(e) => write!(f, "database error: {e}"),
+            Self::Formula(e) => write!(f, "formula error: {e}"),
             Self::FileExists => write!(f, "file already exists"),
             Self::InvalidExtension => write!(f, "invalid file extension, expected .monumentum"),
         }
     }
 }
 
-impl Error for WorkbookError {}
-
-impl From<DbError> for WorkbookError {
-    fn from(e: DbError) -> Self {
-        Self::Db(e.to_string())
+impl Error for WorkbookError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::Db(e) => Some(e),
+            Self::Formula(e) => Some(e),
+            Self::CellTooNarrow
+            | Self::FormatOutOfRange
+            | Self::NotAvailable
+            | Self::InvalidCharacter
+            | Self::InvalidArgument
+            | Self::InvalidFloatingPointOperation
+            | Self::ParameterListError
+            | Self::PairMissing
+            | Self::MissingOperator
+            | Self::MissingVariable
+            | Self::MissingVariableForFunction
+            | Self::FormulaOverflow
+            | Self::StringOverflow
+            | Self::InternalOverflow
+            | Self::InternalSyntaxError
+            | Self::MatrixExpected
+            | Self::UnknownCode
+            | Self::VariableNotAvailable
+            | Self::NoValue
+            | Self::Null
+            | Self::CircularReference
+            | Self::NoConvergence
+            | Self::InvalidReference
+            | Self::InvalidName
+            | Self::ReferenceTooEncapsulated
+            | Self::AddInNotFound
+            | Self::MacroNotFound
+            | Self::DivisionByZero
+            | Self::NestedArraysNotSupported
+            | Self::ArraySizeExceeded
+            | Self::UnsupportedInlineArrayContent
+            | Self::ExternalContentDisabled
+            | Self::FileExists
+            | Self::InvalidExtension => None,
+        }
     }
 }
 
-impl From<monumentum_query::formula::FormulaError> for WorkbookError {
-    fn from(e: monumentum_query::formula::FormulaError) -> Self {
-        Self::Formula(e.to_string())
+impl MonumentumError for WorkbookError {
+    fn kind(&self) -> ErrorKind {
+        match self {
+            Self::Db(e) => e.kind(),
+            Self::Formula(e) => match e {
+                FormulaError::DivisionByZero => ErrorKind::Other,
+                FormulaError::TypeMismatch(_) => ErrorKind::TypeMismatch,
+                FormulaError::InvalidReference(_) => ErrorKind::InvalidOperation,
+                FormulaError::Parse(_)
+                | FormulaError::Eval(_)
+                | FormulaError::CircularReference(_)
+                | FormulaError::UnknownFunction(_)
+                | FormulaError::WrongArity(_)
+                | FormulaError::Unsupported(_) => ErrorKind::Other,
+            },
+            Self::FileExists | Self::InvalidExtension => ErrorKind::InvalidOperation,
+            Self::CircularReference => ErrorKind::Other,
+            Self::InvalidReference | Self::InvalidName | Self::ReferenceTooEncapsulated => {
+                ErrorKind::InvalidOperation
+            }
+            Self::InvalidArgument | Self::MissingOperator | Self::MissingVariable => {
+                ErrorKind::InvalidOperation
+            }
+            Self::CellTooNarrow
+            | Self::FormatOutOfRange
+            | Self::NotAvailable
+            | Self::InvalidCharacter
+            | Self::InvalidFloatingPointOperation
+            | Self::ParameterListError
+            | Self::PairMissing
+            | Self::MissingVariableForFunction
+            | Self::FormulaOverflow
+            | Self::StringOverflow
+            | Self::InternalOverflow
+            | Self::InternalSyntaxError
+            | Self::MatrixExpected
+            | Self::UnknownCode
+            | Self::VariableNotAvailable
+            | Self::NoValue
+            | Self::Null
+            | Self::NoConvergence
+            | Self::AddInNotFound
+            | Self::MacroNotFound
+            | Self::DivisionByZero
+            | Self::NestedArraysNotSupported
+            | Self::ArraySizeExceeded
+            | Self::UnsupportedInlineArrayContent
+            | Self::ExternalContentDisabled => ErrorKind::Other,
+        }
+    }
+
+    fn message(&self) -> &str {
+        match self {
+            Self::Db(e) => e.message(),
+            Self::Formula(e) => e.message(),
+            Self::CellTooNarrow
+            | Self::FormatOutOfRange
+            | Self::NotAvailable
+            | Self::InvalidCharacter
+            | Self::InvalidArgument
+            | Self::InvalidFloatingPointOperation
+            | Self::ParameterListError
+            | Self::PairMissing
+            | Self::MissingOperator
+            | Self::MissingVariable
+            | Self::MissingVariableForFunction
+            | Self::FormulaOverflow
+            | Self::StringOverflow
+            | Self::InternalOverflow
+            | Self::InternalSyntaxError
+            | Self::MatrixExpected
+            | Self::UnknownCode
+            | Self::VariableNotAvailable
+            | Self::NoValue
+            | Self::Null
+            | Self::CircularReference
+            | Self::NoConvergence
+            | Self::InvalidReference
+            | Self::InvalidName
+            | Self::ReferenceTooEncapsulated
+            | Self::AddInNotFound
+            | Self::MacroNotFound
+            | Self::DivisionByZero
+            | Self::NestedArraysNotSupported
+            | Self::ArraySizeExceeded
+            | Self::UnsupportedInlineArrayContent
+            | Self::ExternalContentDisabled
+            | Self::FileExists
+            | Self::InvalidExtension => "Workbook error",
+        }
+    }
+
+    fn constraint(&self) -> Option<&str> {
+        match self {
+            Self::Db(e) => e.constraint(),
+            Self::CellTooNarrow
+            | Self::FormatOutOfRange
+            | Self::NotAvailable
+            | Self::InvalidCharacter
+            | Self::InvalidArgument
+            | Self::InvalidFloatingPointOperation
+            | Self::ParameterListError
+            | Self::PairMissing
+            | Self::MissingOperator
+            | Self::MissingVariable
+            | Self::MissingVariableForFunction
+            | Self::FormulaOverflow
+            | Self::StringOverflow
+            | Self::InternalOverflow
+            | Self::InternalSyntaxError
+            | Self::MatrixExpected
+            | Self::UnknownCode
+            | Self::VariableNotAvailable
+            | Self::NoValue
+            | Self::Null
+            | Self::CircularReference
+            | Self::NoConvergence
+            | Self::InvalidReference
+            | Self::InvalidName
+            | Self::ReferenceTooEncapsulated
+            | Self::AddInNotFound
+            | Self::MacroNotFound
+            | Self::DivisionByZero
+            | Self::NestedArraysNotSupported
+            | Self::ArraySizeExceeded
+            | Self::UnsupportedInlineArrayContent
+            | Self::ExternalContentDisabled
+            | Self::Formula(_)
+            | Self::FileExists
+            | Self::InvalidExtension => None,
+        }
+    }
+
+    fn table(&self) -> Option<&str> {
+        match self {
+            Self::Db(e) => e.table(),
+            Self::CellTooNarrow
+            | Self::FormatOutOfRange
+            | Self::NotAvailable
+            | Self::InvalidCharacter
+            | Self::InvalidArgument
+            | Self::InvalidFloatingPointOperation
+            | Self::ParameterListError
+            | Self::PairMissing
+            | Self::MissingOperator
+            | Self::MissingVariable
+            | Self::MissingVariableForFunction
+            | Self::FormulaOverflow
+            | Self::StringOverflow
+            | Self::InternalOverflow
+            | Self::InternalSyntaxError
+            | Self::MatrixExpected
+            | Self::UnknownCode
+            | Self::VariableNotAvailable
+            | Self::NoValue
+            | Self::Null
+            | Self::CircularReference
+            | Self::NoConvergence
+            | Self::InvalidReference
+            | Self::InvalidName
+            | Self::ReferenceTooEncapsulated
+            | Self::AddInNotFound
+            | Self::MacroNotFound
+            | Self::DivisionByZero
+            | Self::NestedArraysNotSupported
+            | Self::ArraySizeExceeded
+            | Self::UnsupportedInlineArrayContent
+            | Self::ExternalContentDisabled
+            | Self::Formula(_)
+            | Self::FileExists
+            | Self::InvalidExtension => None,
+        }
+    }
+}
+
+impl From<DbError> for WorkbookError {
+    fn from(e: DbError) -> Self {
+        Self::Db(e)
+    }
+}
+
+impl From<FormulaError> for WorkbookError {
+    fn from(e: FormulaError) -> Self {
+        Self::Formula(e)
     }
 }

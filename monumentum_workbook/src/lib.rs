@@ -6,8 +6,8 @@ use monumentum_db::store::storage::StorageEngine;
 use monumentum_query::formula::{FunctionImpl, FunctionRegistry};
 mod error;
 pub mod menu;
+pub mod query;
 pub mod transaction;
-
 pub use error::WorkbookError;
 
 #[derive(Debug)]
@@ -46,15 +46,15 @@ impl<S: StorageEngine> Workbook<S> {
 
 impl<S: StorageEngine> Workbook<S> {
     pub fn sheet(&self, name: &str) -> Result<&Table, WorkbookError> {
-        self.catalog.get_table(name).ok_or_else(|| {
-            WorkbookError::Db(monumentum_db::error::DbError::table_not_found(name).to_string())
-        })
+        self.catalog
+            .get_table(name)
+            .ok_or_else(|| WorkbookError::Db(monumentum_db::error::DbError::table_not_found(name)))
     }
 
     pub fn sheet_mut(&mut self, name: &str) -> Result<&mut Table, WorkbookError> {
-        self.catalog.get_table_mut(name).ok_or_else(|| {
-            WorkbookError::Db(monumentum_db::error::DbError::table_not_found(name).to_string())
-        })
+        self.catalog
+            .get_table_mut(name)
+            .ok_or_else(|| WorkbookError::Db(monumentum_db::error::DbError::table_not_found(name)))
     }
 
     pub fn persist_catalog(&mut self) -> Result<(), WorkbookError> {
@@ -70,11 +70,11 @@ impl<S: StorageEngine> Workbook<S> {
     ) -> Result<(), WorkbookError> {
         self.ensure_writable(sheet)?;
         let table = self.catalog.get_table_mut(sheet).ok_or_else(|| {
-            WorkbookError::Db(monumentum_db::error::DbError::table_not_found(sheet).to_string())
+            WorkbookError::Db(monumentum_db::error::DbError::table_not_found(sheet))
         })?;
 
         let col_idx = table.schema().column_index(col_name).ok_or_else(|| {
-            WorkbookError::Db(monumentum_db::error::DbError::column_not_found(col_name).to_string())
+            WorkbookError::Db(monumentum_db::error::DbError::column_not_found(col_name))
         })?;
 
         table.set_column_allowed_values(col_idx, Some(values))?;
@@ -88,7 +88,7 @@ impl<S: StorageEngine> Workbook<S> {
         col_idx: usize,
     ) -> Result<(), WorkbookError> {
         let table = self.catalog.get_table(sheet).ok_or_else(|| {
-            WorkbookError::Db(monumentum_db::error::DbError::table_not_found(sheet).to_string())
+            WorkbookError::Db(monumentum_db::error::DbError::table_not_found(sheet))
         })?;
         let value = table
             .get(row_idx)
@@ -105,7 +105,7 @@ impl<S: StorageEngine> Workbook<S> {
 
     pub fn protect_sheet(&mut self, sheet: &str) -> Result<(), WorkbookError> {
         let table = self.catalog.get_table_mut(sheet).ok_or_else(|| {
-            WorkbookError::Db(monumentum_db::error::DbError::table_not_found(sheet).to_string())
+            WorkbookError::Db(monumentum_db::error::DbError::table_not_found(sheet))
         })?;
         table.set_read_only(true);
         Ok(())
@@ -113,7 +113,7 @@ impl<S: StorageEngine> Workbook<S> {
 
     pub fn unprotect_sheet(&mut self, sheet: &str) -> Result<(), WorkbookError> {
         let table = self.catalog.get_table_mut(sheet).ok_or_else(|| {
-            WorkbookError::Db(monumentum_db::error::DbError::table_not_found(sheet).to_string())
+            WorkbookError::Db(monumentum_db::error::DbError::table_not_found(sheet))
         })?;
         table.set_read_only(false);
         Ok(())
@@ -121,20 +121,24 @@ impl<S: StorageEngine> Workbook<S> {
 
     pub fn is_sheet_protected(&self, sheet: &str) -> Result<bool, WorkbookError> {
         let table = self.catalog.get_table(sheet).ok_or_else(|| {
-            WorkbookError::Db(monumentum_db::error::DbError::table_not_found(sheet).to_string())
+            WorkbookError::Db(monumentum_db::error::DbError::table_not_found(sheet))
         })?;
         Ok(table.is_read_only())
     }
 
     pub(crate) fn ensure_writable(&self, sheet: &str) -> Result<(), WorkbookError> {
         let table = self.catalog.get_table(sheet).ok_or_else(|| {
-            WorkbookError::Db(monumentum_db::error::DbError::table_not_found(sheet).to_string())
+            WorkbookError::Db(monumentum_db::error::DbError::table_not_found(sheet))
         })?;
         if table.is_read_only() {
             return Err(WorkbookError::Db(
-                monumentum_db::error::DbError::invalid_operation("sheet is protected").to_string(),
+                monumentum_db::error::DbError::invalid_operation("sheet is protected"),
             ));
         }
         Ok(())
+    }
+
+    pub fn query<'a>(&'a self, sheet: &str) -> query::Query<'a, S> {
+        query::Query::new(self, sheet)
     }
 }

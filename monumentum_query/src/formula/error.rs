@@ -1,5 +1,7 @@
 use core::fmt;
 
+use monumentum_db::error::{ErrorKind, MonumentumError};
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FormulaError {
     Parse(String),
@@ -30,3 +32,29 @@ impl fmt::Display for FormulaError {
 }
 
 impl std::error::Error for FormulaError {}
+
+impl MonumentumError for FormulaError {
+    fn kind(&self) -> ErrorKind {
+        match self {
+            Self::Parse(_) | Self::Eval(_) | Self::Unsupported(_) => ErrorKind::Other,
+            Self::CircularReference(_) | Self::InvalidReference(_) => ErrorKind::InvalidOperation,
+            Self::DivisionByZero => ErrorKind::Other,
+            Self::TypeMismatch(_) => ErrorKind::TypeMismatch,
+            Self::UnknownFunction(_) | Self::WrongArity(_) => ErrorKind::InvalidOperation,
+        }
+    }
+
+    fn message(&self) -> &str {
+        match self {
+            Self::Parse(msg)
+            | Self::Eval(msg)
+            | Self::CircularReference(msg)
+            | Self::InvalidReference(msg)
+            | Self::TypeMismatch(msg)
+            | Self::WrongArity(msg)
+            | Self::Unsupported(msg) => msg.as_str(),
+            Self::UnknownFunction(name) => name.as_str(),
+            Self::DivisionByZero => "division by zero",
+        }
+    }
+}

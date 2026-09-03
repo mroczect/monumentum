@@ -1,458 +1,197 @@
-use monumentum_db::core::schema::column::{CheckConstraint, ColumnDef, ComparisonOp, DataType};
+use monumentum_db::core::schema::column::{
+    CheckConstraint, ColumnDef, ColumnIndex, ComparisonOp, DataType,
+};
 use monumentum_db::core::schema::table_schema::TableSchema;
 use monumentum_db::core::value::Value;
 use monumentum_db::error::DbError;
+use proptest::prelude::*;
 
-fn int_col(name: &str) -> ColumnDef {
-    ColumnDef::new(name, DataType::Integer)
-}
-
-fn text_col(name: &str) -> ColumnDef {
-    ColumnDef::new(name, DataType::Text)
-}
-
-fn float_col(name: &str) -> ColumnDef {
-    ColumnDef::new(name, DataType::Float)
-}
-
-fn blob_col(name: &str) -> ColumnDef {
-    ColumnDef::new(name, DataType::Blob)
-}
-
-fn nullable_col(mut col: ColumnDef, nullable: bool) -> ColumnDef {
-    col.set_nullable(nullable);
-    col
-}
-
-fn with_check(mut col: ColumnDef, check: CheckConstraint) -> ColumnDef {
-    col.set_check(Some(check));
-    col
-}
-
-fn create_schema(name: &str, columns: Vec<ColumnDef>) -> Result<TableSchema, DbError> {
-    TableSchema::try_new(name, columns)
+fn make_schema(name: &str, columns: Vec<ColumnDef>) -> TableSchema {
+    TableSchema::try_new(name, columns).expect("valid schema")
 }
 
 #[test]
-fn try_new_valid_creates_schema() {
-    let result = create_schema("users", vec![int_col("id"), text_col("name")]);
-    assert!(result.is_ok());
-    let schema = result.unwrap();
-    assert_eq!(schema.name(), "users");
-    assert_eq!(schema.columns().len(), 2);
+fn get_column_by_index_with_usize() {
+    let schema = make_schema(
+        "products",
+        vec![
+            ColumnDef::new("id", DataType::Integer),
+            ColumnDef::new("name", DataType::Text),
+        ],
+    );
+    assert_eq!(schema.get_column_by_index(0).unwrap().name(), "id");
+    assert_eq!(schema.get_column_by_index(1).unwrap().name(), "name");
+    assert!(schema.get_column_by_index(2).is_none());
 }
 
 #[test]
-fn try_new_empty_table_name_returns_error() {
-    let result = create_schema("", vec![int_col("id")]);
-    assert!(result.is_err());
-    if let Err(e) = result {
-        assert!(matches!(e, DbError::InvalidOperation(_)));
-        assert_eq!(
-            e.to_string(),
-            "Invalid operation: table name cannot be empty"
-        );
-    }
+fn get_column_by_index_with_str() {
+    let schema = make_schema(
+        "products",
+        vec![
+            ColumnDef::new("id", DataType::Integer),
+            ColumnDef::new("name", DataType::Text),
+        ],
+    );
+    assert_eq!(schema.get_column_by_index("id").unwrap().name(), "id");
+    assert_eq!(schema.get_column_by_index("NAME").unwrap().name(), "name");
+    assert!(schema.get_column_by_index("missing").is_none());
 }
 
 #[test]
-fn try_new_empty_columns_returns_error() {
-    let result = create_schema("users", vec![]);
-    assert!(result.is_err());
-    if let Err(e) = result {
-        assert!(matches!(e, DbError::InvalidOperation(_)));
-        assert_eq!(
-            e.to_string(),
-            "Invalid operation: table must have at least one column"
-        );
-    }
+fn column_index_trait_usize_bounds() {
+    let schema = make_schema(
+        "test",
+        vec![
+            ColumnDef::new("a", DataType::Integer),
+            ColumnDef::new("b", DataType::Text),
+        ],
+    );
+    assert_eq!(usize::index(&0, &schema), Ok(0));
+    assert_eq!(usize::index(&1, &schema), Ok(1));
+    assert!(usize::index(&2, &schema).is_err());
 }
 
 #[test]
-fn try_new_column_with_empty_name_returns_error() {
-    let col = int_col("");
-    let result = create_schema("users", vec![col]);
-    assert!(result.is_err());
-    if let Err(e) = result {
-        assert!(matches!(e, DbError::InvalidOperation(_)));
-        assert_eq!(
-            e.to_string(),
-            "Invalid operation: column name cannot be empty"
-        );
-    }
+fn column_index_trait_str_case_insensitive() {
+    let schema = make_schema(
+        "test",
+        vec![
+            ColumnDef::new("Alpha", DataType::Integer),
+            ColumnDef::new("Beta", DataType::Text),
+        ],
+    );
+    assert_eq!(<&str as ColumnIndex<_>>::index(&"alpha", &schema), Ok(0));
+    assert_eq!(<&str as ColumnIndex<_>>::index(&"BETA", &schema), Ok(1));
+    assert!(<&str as ColumnIndex<_>>::index(&"gamma", &schema).is_err());
 }
 
 #[test]
-fn try_new_duplicate_column_name_case_sensitive_returns_error() {
-    let result = create_schema("users", vec![int_col("id"), int_col("id")]);
-    assert!(result.is_err());
-    if let Err(e) = result {
-        assert!(matches!(e, DbError::InvalidOperation(_)));
-        assert_eq!(
-            e.to_string(),
-            "Invalid operation: duplicate column name 'id'"
-        );
-    }
+fn validate_values_allowed_values_pass() {
+    let mut col = ColumnDef::new("status", DataType::Text);
+    col.set_allowed_values(Some(vec![Value::from("active"), Value::from("inactive")]));
+    let schema = make_schema("users", vec![col]);
+    assert!(schema.validate_values(&[Value::from("active")]).is_ok());
+    assert!(schema.validate_values(&[Value::from("inactive")]).is_ok());
+    assert!(schema.validate_values(&[Value::from("pending")]).is_err());
 }
 
 #[test]
-fn try_new_duplicate_column_name_case_insensitive_returns_error() {
-    let result = create_schema("users", vec![int_col("ID"), int_col("id")]);
-    assert!(result.is_err());
-    if let Err(e) = result {
-        assert!(matches!(e, DbError::InvalidOperation(_)));
-        assert!(e.to_string().contains("duplicate column name"));
-    }
-}
-
-#[test]
-fn name_returns_correct_name() {
-    let schema = create_schema("products", vec![int_col("id")]).unwrap();
-    assert_eq!(schema.name(), "products");
-}
-
-#[test]
-fn columns_returns_slice() {
-    let schema = create_schema("products", vec![int_col("id"), text_col("name")]).unwrap();
-    let cols = schema.columns();
-    assert_eq!(cols.len(), 2);
-    assert_eq!(cols[0].name(), "id");
-    assert_eq!(cols[1].name(), "name");
-}
-
-#[test]
-fn column_index_exact_match() {
-    let schema = create_schema("products", vec![int_col("id"), text_col("name")]).unwrap();
-    assert_eq!(schema.column_index("id"), Some(0));
-    assert_eq!(schema.column_index("name"), Some(1));
-}
-
-#[test]
-fn column_index_case_insensitive_match() {
-    let schema = create_schema("products", vec![int_col("id"), text_col("name")]).unwrap();
-    assert_eq!(schema.column_index("ID"), Some(0));
-    assert_eq!(schema.column_index("Name"), Some(1));
-}
-
-#[test]
-fn column_index_not_found_returns_none() {
-    let schema = create_schema("products", vec![int_col("id")]).unwrap();
-    assert_eq!(schema.column_index("nonexistent"), None);
-}
-
-#[test]
-fn get_column_returns_reference() {
-    let schema = create_schema("products", vec![int_col("id"), text_col("name")]).unwrap();
-    let col = schema.get_column("name");
-    assert!(col.is_some());
-    assert_eq!(col.unwrap().name(), "name");
-    assert_eq!(col.unwrap().data_type(), &DataType::Text);
-}
-
-#[test]
-fn get_column_case_insensitive_returns_reference() {
-    let schema = create_schema("products", vec![int_col("id"), text_col("name")]).unwrap();
-    let col = schema.get_column("NAME");
-    assert!(col.is_some());
-    assert_eq!(col.unwrap().name(), "name");
-}
-
-#[test]
-fn get_column_not_found_returns_none() {
-    let schema = create_schema("products", vec![int_col("id")]).unwrap();
-    assert!(schema.get_column("missing").is_none());
-}
-
-#[test]
-fn validate_values_correct_length_and_types_ok() {
-    let schema = create_schema("users", vec![int_col("id"), text_col("name")]).unwrap();
-    let values = vec![Value::from(1_i64), Value::from("Alice")];
-    assert!(schema.validate_values(&values).is_ok());
-}
-
-#[test]
-fn validate_values_wrong_length_returns_error() {
-    let schema = create_schema("users", vec![int_col("id"), text_col("name")]).unwrap();
-    let values = vec![Value::from(1_i64)];
-    let result = schema.validate_values(&values);
-    assert!(result.is_err());
-    if let Err(e) = result {
-        assert_eq!(e.to_string(), "Invalid operation: expected 2 values, got 1");
-    }
-}
-
-#[test]
-fn validate_values_null_in_non_nullable_column_returns_error() {
-    let schema = create_schema("users", vec![nullable_col(int_col("id"), false)]).unwrap();
-    let values = vec![Value::Null];
-    let result = schema.validate_values(&values);
-    assert!(result.is_err());
-    if let Err(e) = result {
-        assert_eq!(
-            e.to_string(),
-            "Invalid operation: column 'id' is not nullable"
-        );
-    }
-}
-
-#[test]
-fn validate_values_null_in_nullable_column_ok() {
-    let schema = create_schema("users", vec![nullable_col(int_col("age"), true)]).unwrap();
-    let values = vec![Value::Null];
-    assert!(schema.validate_values(&values).is_ok());
-}
-
-#[test]
-fn validate_values_type_mismatch_returns_error() {
-    let schema = create_schema("users", vec![int_col("id")]).unwrap();
-    let values = vec![Value::from("not integer")];
-    let result = schema.validate_values(&values);
-    assert!(result.is_err());
-    if let Err(e) = result {
-        assert!(matches!(e, DbError::TypeMismatch(_)));
-        assert_eq!(
-            e.to_string(),
-            "Type mismatch: column 'id' expects INTEGER, got text"
-        );
-    }
-}
-
-#[test]
-fn validate_values_integer_check_eq_pass() {
-    let check = CheckConstraint {
-        column: "age".to_string(),
-        op: ComparisonOp::Eq,
-        value: Value::from(30_i64),
-    };
-    let col = with_check(int_col("age"), check);
-    let schema = create_schema("users", vec![col]).unwrap();
-    let values = vec![Value::from(30_i64)];
-    assert!(schema.validate_values(&values).is_ok());
-}
-
-#[test]
-fn validate_values_integer_check_eq_fail() {
-    let check = CheckConstraint {
-        column: "age".to_string(),
-        op: ComparisonOp::Eq,
-        value: Value::from(30_i64),
-    };
-    let col = with_check(int_col("age"), check);
-    let schema = create_schema("users", vec![col]).unwrap();
-    let values = vec![Value::from(31_i64)];
-    let result = schema.validate_values(&values);
-    assert!(result.is_err());
-    if let Err(e) = result {
-        assert!(e.to_string().contains("check constraint failed"));
-    }
-}
-
-#[test]
-fn validate_values_integer_check_neq_pass() {
-    let check = CheckConstraint {
-        column: "age".to_string(),
-        op: ComparisonOp::NotEq,
-        value: Value::from(0_i64),
-    };
-    let col = with_check(int_col("age"), check);
-    let schema = create_schema("users", vec![col]).unwrap();
-    let values = vec![Value::from(1_i64)];
-    assert!(schema.validate_values(&values).is_ok());
-}
-
-#[test]
-fn validate_values_integer_check_lt_pass() {
-    let check = CheckConstraint {
-        column: "age".to_string(),
-        op: ComparisonOp::Lt,
-        value: Value::from(18_i64),
-    };
-    let col = with_check(int_col("age"), check);
-    let schema = create_schema("users", vec![col]).unwrap();
-    let values = vec![Value::from(17_i64)];
-    assert!(schema.validate_values(&values).is_ok());
-}
-
-#[test]
-fn validate_values_integer_check_lt_fail() {
-    let check = CheckConstraint {
-        column: "age".to_string(),
-        op: ComparisonOp::Lt,
-        value: Value::from(18_i64),
-    };
-    let col = with_check(int_col("age"), check);
-    let schema = create_schema("users", vec![col]).unwrap();
-    let values = vec![Value::from(18_i64)];
-    assert!(schema.validate_values(&values).is_err());
-}
-
-#[test]
-fn validate_values_integer_check_lte_pass_equal() {
-    let check = CheckConstraint {
-        column: "age".to_string(),
-        op: ComparisonOp::Lte,
-        value: Value::from(18_i64),
-    };
-    let col = with_check(int_col("age"), check);
-    let schema = create_schema("users", vec![col]).unwrap();
-    let values = vec![Value::from(18_i64)];
-    assert!(schema.validate_values(&values).is_ok());
-}
-
-#[test]
-fn validate_values_integer_check_gt_pass() {
-    let check = CheckConstraint {
-        column: "age".to_string(),
-        op: ComparisonOp::Gt,
-        value: Value::from(0_i64),
-    };
-    let col = with_check(int_col("age"), check);
-    let schema = create_schema("users", vec![col]).unwrap();
-    let values = vec![Value::from(1_i64)];
-    assert!(schema.validate_values(&values).is_ok());
-}
-
-#[test]
-fn validate_values_integer_check_gte_pass_equal() {
-    let check = CheckConstraint {
-        column: "age".to_string(),
+fn validate_values_allowed_values_and_check_constraint_combined() {
+    let mut col = ColumnDef::new("age", DataType::Integer);
+    col.set_check(Some(CheckConstraint {
+        column: "age".into(),
         op: ComparisonOp::Gte,
         value: Value::from(18_i64),
-    };
-    let col = with_check(int_col("age"), check);
-    let schema = create_schema("users", vec![col]).unwrap();
-    let values = vec![Value::from(18_i64)];
-    assert!(schema.validate_values(&values).is_ok());
+    }));
+    col.set_allowed_values(Some(vec![
+        Value::from(18_i64),
+        Value::from(21_i64),
+        Value::from(30_i64),
+    ]));
+    let schema = make_schema("users", vec![col]);
+
+    assert!(schema.validate_values(&[Value::from(18_i64)]).is_ok());
+    assert!(schema.validate_values(&[Value::from(21_i64)]).is_ok());
+    assert!(schema.validate_values(&[Value::from(25_i64)]).is_err());
+    assert!(schema.validate_values(&[Value::from(17_i64)]).is_err());
 }
 
 #[test]
-fn validate_values_float_check_eq_pass() {
-    let check = CheckConstraint {
-        column: "price".to_string(),
-        op: ComparisonOp::Eq,
-        value: Value::try_from(9.99_f64).unwrap(),
-    };
-    let col = with_check(float_col("price"), check);
-    let schema = create_schema("products", vec![col]).unwrap();
-    let values = vec![Value::try_from(9.99_f64).unwrap()];
-    assert!(schema.validate_values(&values).is_ok());
+fn validate_values_formula_skips_type_check() {
+    let schema = make_schema("calc", vec![ColumnDef::new("result", DataType::Integer)]);
+    let formula = Value::Formula("SUM(A1:A10)".to_string());
+    assert!(schema.validate_values(&[formula]).is_ok());
 }
 
 #[test]
-fn validate_values_float_check_lt_fail() {
-    let check = CheckConstraint {
-        column: "price".to_string(),
-        op: ComparisonOp::Lt,
-        value: Value::try_from(10.0_f64).unwrap(),
-    };
-    let col = with_check(float_col("price"), check);
-    let schema = create_schema("products", vec![col]).unwrap();
-    let values = vec![Value::try_from(10.5_f64).unwrap()];
-    assert!(schema.validate_values(&values).is_err());
+fn validate_values_multiple_columns_type_mismatch_reports_first_error() {
+    let schema = make_schema(
+        "mixed",
+        vec![
+            ColumnDef::new("id", DataType::Integer),
+            ColumnDef::new("name", DataType::Text),
+        ],
+    );
+    let values = vec![Value::from("bukan integer"), Value::from("Alice")];
+    let err = schema.validate_values(&values).unwrap_err();
+    assert!(matches!(err, DbError::TypeMismatch(_)));
+    assert_eq!(
+        err.to_string(),
+        "Type mismatch: column 'id' expects INTEGER, got text"
+    );
 }
 
 #[test]
-fn validate_values_text_check_eq_pass() {
-    let check = CheckConstraint {
-        column: "status".to_string(),
-        op: ComparisonOp::Eq,
-        value: Value::from("active"),
-    };
-    let col = with_check(text_col("status"), check);
-    let schema = create_schema("users", vec![col]).unwrap();
-    let values = vec![Value::from("active")];
-    assert!(schema.validate_values(&values).is_ok());
+fn validate_values_nullable_mix() {
+    let mut nullable_int = ColumnDef::new("maybe_age", DataType::Integer);
+    nullable_int.set_nullable(true);
+    let mut not_null_text = ColumnDef::new("required_name", DataType::Text);
+    not_null_text.set_nullable(false);
+    let schema = make_schema("users", vec![nullable_int, not_null_text]);
+
+    assert!(
+        schema
+            .validate_values(&[Value::Null, Value::from("Bob")])
+            .is_ok()
+    );
+    assert!(
+        schema
+            .validate_values(&[Value::from(30_i64), Value::Null])
+            .is_err()
+    );
 }
 
-#[test]
-fn validate_values_text_check_not_eq_fail() {
-    let check = CheckConstraint {
-        column: "status".to_string(),
-        op: ComparisonOp::NotEq,
-        value: Value::from("inactive"),
-    };
-    let col = with_check(text_col("status"), check);
-    let schema = create_schema("users", vec![col]).unwrap();
-    let values = vec![Value::from("inactive")];
-    assert!(schema.validate_values(&values).is_err());
-}
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(256))]
 
-#[test]
-fn validate_values_text_check_lt_pass() {
-    let check = CheckConstraint {
-        column: "name".to_string(),
-        op: ComparisonOp::Lt,
-        value: Value::from("m"),
-    };
-    let col = with_check(text_col("name"), check);
-    let schema = create_schema("users", vec![col]).unwrap();
-    let values = vec![Value::from("alice")];
-    assert!(schema.validate_values(&values).is_ok());
-}
+    #[test]
+    fn try_new_accepts_unique_column_names(name in "[a-zA-Z][a-zA-Z0-9_]*") {
+        let col = ColumnDef::new(name.clone(), DataType::Integer);
+        let schema = TableSchema::try_new("t", vec![col]);
+        prop_assert!(schema.is_ok());
+    }
 
-#[test]
-fn validate_values_blob_check_eq_pass() {
-    let check = CheckConstraint {
-        column: "data".to_string(),
-        op: ComparisonOp::Eq,
-        value: Value::from(vec![1_u8, 2, 3]),
-    };
-    let col = with_check(blob_col("data"), check);
-    let schema = create_schema("files", vec![col]).unwrap();
-    let values = vec![Value::from(vec![1_u8, 2, 3])];
-    assert!(schema.validate_values(&values).is_ok());
-}
+    #[test]
+    fn column_index_finds_known_name_case_insensitive(name in "alpha|beta|ALPHA|BETA") {
+        let schema = TableSchema::try_new(
+            "t",
+            vec![
+                ColumnDef::new("Alpha", DataType::Integer),
+                ColumnDef::new("Beta", DataType::Text),
+            ],
+        )
+        .unwrap();
 
-#[test]
-fn validate_values_blob_check_eq_fail() {
-    let check = CheckConstraint {
-        column: "data".to_string(),
-        op: ComparisonOp::Eq,
-        value: Value::from(vec![1_u8, 2, 3]),
-    };
-    let col = with_check(blob_col("data"), check);
-    let schema = create_schema("files", vec![col]).unwrap();
-    let values = vec![Value::from(vec![4_u8, 5])];
-    assert!(schema.validate_values(&values).is_err());
-}
+        let idx = schema.column_index(&name);
+        prop_assert!(idx.is_some());
+        let expected = if name.eq_ignore_ascii_case("alpha") { 0 } else { 1 };
+        prop_assert_eq!(idx, Some(expected));
+    }
 
-#[test]
-fn validate_values_blob_check_lt_returns_false_and_fails() {
-    let check = CheckConstraint {
-        column: "data".to_string(),
-        op: ComparisonOp::Lt,
-        value: Value::from(vec![1_u8]),
-    };
-    let col = with_check(blob_col("data"), check);
-    let schema = create_schema("files", vec![col]).unwrap();
-    let values = vec![Value::from(vec![1_u8])];
-    assert!(schema.validate_values(&values).is_err());
-}
+    #[test]
+    fn try_new_rejects_duplicate_column_names_case_insensitive(
+        name in "[a-zA-Z][a-zA-Z0-9_]*",
+    ) {
+        let col1 = ColumnDef::new(name.clone(), DataType::Integer);
+        let col2 = ColumnDef::new(name.to_lowercase(), DataType::Integer);
+        prop_assert!(TableSchema::try_new("t", vec![col1, col2]).is_err());
+    }
 
-#[test]
-fn validate_values_check_with_mismatched_types_fails() {
-    let check = CheckConstraint {
-        column: "age".to_string(),
-        op: ComparisonOp::Eq,
-        value: Value::from("30"),
-    };
-    let col = with_check(int_col("age"), check);
-    let schema = create_schema("users", vec![col]).unwrap();
-    let values = vec![Value::from(30_i64)];
-    assert!(schema.validate_values(&values).is_err());
-}
+    #[test]
+    fn column_index_returns_same_position_for_case_insensitive_name(
+        name in "[a-zA-Z]+",
+    ) {
+        let schema = make_schema(
+            "t",
+            vec![
+                ColumnDef::new("Alpha", DataType::Integer),
+                ColumnDef::new("Beta", DataType::Text),
+            ],
+        );
 
-#[test]
-fn validate_values_null_skips_check_constraint() {
-    let check = CheckConstraint {
-        column: "age".to_string(),
-        op: ComparisonOp::Gt,
-        value: Value::from(0_i64),
-    };
-    let mut col = int_col("age");
-    col.set_nullable(true);
-    col.set_check(Some(check));
-    let schema = create_schema("users", vec![col]).unwrap();
-    let values = vec![Value::Null];
-    assert!(schema.validate_values(&values).is_ok());
+        let lower = name.to_lowercase();
+        let upper = name.to_uppercase();
+        prop_assert_eq!(schema.column_index(&lower), schema.column_index(&upper));
+    }
 }

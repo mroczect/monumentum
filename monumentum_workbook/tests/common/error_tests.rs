@@ -286,8 +286,11 @@ fn display_external_content_disabled() {
 
 #[test]
 fn display_db_error() {
-    let err = WorkbookError::Db("custom message".to_string());
-    assert_eq!(format!("{err}"), "database error: custom message");
+    let err = WorkbookError::Db(DbError::invalid_operation("custom message"));
+    assert_eq!(
+        format!("{err}"),
+        "database error: Invalid operation: custom message"
+    );
 }
 
 #[test]

@@ -155,19 +155,12 @@ fn lock_prevents_second_open_until_first_dropped() -> Result<(), DbError> {
     let temp = TempPath::new_file("monumentum_wal_test");
     let wal1 = Wal::open(temp.path())?;
 
-    let path_clone = temp.path().to_path_buf();
-    let handle = std::thread::spawn(move || {
-        let result = Wal::open(&path_clone);
-        result.is_ok()
-    });
+    let result = Wal::open(temp.path());
+    assert!(result.is_err());
 
-    std::thread::sleep(std::time::Duration::from_millis(100));
     drop(wal1);
 
-    let second_succeeded = handle.join().expect("thread panicked");
-    assert!(
-        second_succeeded,
-        "second open should succeed after lock release"
-    );
+    let mut wal2 = Wal::open(temp.path())?;
+    wal2.unlock()?;
     Ok(())
 }

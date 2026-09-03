@@ -331,3 +331,128 @@ fn read_records_truncated_payload_returns_error() -> Result<(), DbError> {
     }
     Ok(())
 }
+
+#[test]
+fn append_record_empty_payload() -> Result<(), DbError> {
+    let (mut file, _temp) = create_test_file()?;
+    let payload = Vec::new();
+    append_record(&mut file, &payload)?;
+    let records = read_records(&mut file)?;
+    assert_eq!(records.len(), 1);
+    assert_eq!(records[0], payload);
+    Ok(())
+}
+
+#[test]
+fn append_record_exact_max_size_payload() -> Result<(), DbError> {
+    let (mut file, _temp) = create_test_file()?;
+    let payload = vec![0u8; MAX_RECORD_SIZE];
+    append_record(&mut file, &payload)?;
+    let records = read_records(&mut file)?;
+    assert_eq!(records.len(), 1);
+    assert_eq!(records[0], payload);
+    Ok(())
+}
+
+#[test]
+fn append_record_max_size_plus_one_returns_error() -> Result<(), DbError> {
+    let (mut file, _temp) = create_test_file()?;
+    let payload = vec![0u8; MAX_RECORD_SIZE + 1];
+    let result = append_record(&mut file, &payload);
+    assert!(result.is_err());
+    if let Err(e) = result {
+        assert_eq!(
+            e.to_string(),
+            format!(
+                "Invalid operation: record size {} exceeds maximum allowed {}",
+                MAX_RECORD_SIZE + 1,
+                MAX_RECORD_SIZE
+            )
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn read_records_with_record_followed_by_corrupt_header() -> Result<(), DbError> {
+    let (mut file, _temp) = create_test_file()?;
+    let payload = b"good".to_vec();
+    append_record(&mut file, &payload)?;
+
+    file.seek(SeekFrom::Start(0))?;
+    let mut all = Vec::new();
+    file.read_to_end(&mut all)?;
+
+    let mut bad_header = [0u8; HEADER_SIZE];
+    bad_header[0..4].copy_from_slice(&0xDEADBEEFu32.to_le_bytes());
+    all.extend_from_slice(&bad_header);
+
+    file.set_len(0)?;
+    file.seek(SeekFrom::Start(0))?;
+    file.write_all(&all)?;
+    file.sync_all()?;
+    file.seek(SeekFrom::Start(0))?;
+
+    let result = read_records(&mut file);
+    assert!(result.is_err());
+    if let Err(e) = result {
+        assert_eq!(
+            e.to_string(),
+            "Data corruption: invalid magic in log header"
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn append_many_records_and_read_in_order() -> Result<(), DbError> {
+    let (mut file, _temp) = create_test_file()?;
+    let mut expected = Vec::new();
+    for i in 0..1000 {
+        let payload = format!("record-{i}").into_bytes();
+        append_record(&mut file, &payload)?;
+        expected.push(payload);
+    }
+
+    let records = read_records(&mut file)?;
+    assert_eq!(records.len(), expected.len());
+    for (actual, expected) in records.iter().zip(expected.iter()) {
+        assert_eq!(actual, expected);
+    }
+    Ok(())
+}
+
+proptest::proptest! {
+    #![proptest_config(proptest::test_runner::Config::with_cases(64))]
+
+    #[test]
+    fn append_and_read_many_records_roundtrip(
+        records in proptest::collection::vec(
+            proptest::collection::vec(proptest::prelude::any::<u8>(), 0..1000),
+            0..20
+        ),
+    ) {
+        let (mut file, _temp) = create_test_file().unwrap();
+        for record in &records {
+            append_record(&mut file, record).unwrap();
+        }
+        let read_back = read_records(&mut file).unwrap();
+        proptest::prop_assert_eq!(records, read_back);
+    }
+
+    #[test]
+    fn crc32_deterministic(
+        data in proptest::collection::vec(proptest::prelude::any::<u8>(), 0..1000),
+    ) {
+        let first = crc32(&data);
+        let second = crc32(&data);
+        proptest::prop_assert_eq!(first, second);
+    }
+
+    #[test]
+    fn crc32_empty_always_zero(
+        data in proptest::collection::vec(proptest::prelude::any::<u8>(), 0..=0),
+    ) {
+        proptest::prop_assert_eq!(crc32(&data), 0);
+    }
+}
