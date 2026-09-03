@@ -35,7 +35,7 @@ fn max_mixed_returns_float() {
 fn max_empty_errors() {
     assert!(matches!(
         call_function("MAX", &[]),
-        Err(FormulaError::Eval(_))
+        Err(FormulaError::WrongArity(_))
     ));
 }
 
