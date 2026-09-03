@@ -1,4 +1,5 @@
 use monumentum_db::types::Blob;
+use proptest::prelude::*;
 
 #[test]
 fn new_empty_blob() {
@@ -78,4 +79,55 @@ fn partial_eq_considers_content() {
     let blob3 = Blob::new(vec![2, 1]);
     assert_eq!(blob1, blob2);
     assert_ne!(blob1, blob3);
+}
+
+proptest! {
+    #![proptest_config(proptest::test_runner::Config::with_cases(64))]
+
+    #[test]
+    fn blob_new_and_accessors_roundtrip(
+        data in proptest::collection::vec(proptest::prelude::any::<u8>(), 0..100),
+    ) {
+        let blob = Blob::new(data.clone());
+        prop_assert_eq!(blob.as_slice(), data.as_slice());
+        prop_assert_eq!(blob.len(), data.len());
+        prop_assert_eq!(blob.is_empty(), data.is_empty());
+    }
+
+    #[test]
+    fn blob_clone_equality(
+        data in proptest::collection::vec(proptest::prelude::any::<u8>(), 0..100),
+    ) {
+        let blob = Blob::new(data);
+        let cloned = blob.clone();
+        prop_assert_eq!(blob, cloned);
+    }
+
+    #[test]
+    fn blob_from_vec_and_slice_agree(
+        data in proptest::collection::vec(proptest::prelude::any::<u8>(), 0..100),
+    ) {
+        let from_vec = Blob::from(data.clone());
+        let from_slice = Blob::from(data.as_slice());
+        prop_assert_eq!(from_vec, from_slice);
+    }
+
+    #[test]
+    fn blob_as_ref_matches_slice(
+        data in proptest::collection::vec(proptest::prelude::any::<u8>(), 0..100),
+    ) {
+        let blob = Blob::new(data.clone());
+        let r: &[u8] = blob.as_ref();
+        prop_assert_eq!(r, data.as_slice());
+    }
+
+    #[test]
+    fn blob_display_contains_length(
+        data in proptest::collection::vec(proptest::prelude::any::<u8>(), 0..100),
+    ) {
+        let blob = Blob::new(data.clone());
+        let display = format!("{}", blob);
+        let expected = format!("{} bytes", data.len());
+        prop_assert!(display.contains(&expected));
+    }
 }
