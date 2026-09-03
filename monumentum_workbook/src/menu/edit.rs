@@ -30,7 +30,9 @@ impl<S: StorageEngine> Workbook<S> {
         let table = self.catalog.get_table_mut(sheet).ok_or_else(|| {
             WorkbookError::Db(monumentum_db::error::DbError::table_not_found(sheet).to_string())
         })?;
-        let row = table
+
+        let mut rows = table.rows().to_vec();
+        let row = rows
             .get_mut(row_idx)
             .ok_or(WorkbookError::InvalidReference)?;
         let cell = row
@@ -38,7 +40,33 @@ impl<S: StorageEngine> Workbook<S> {
             .get_mut(col_idx)
             .ok_or(WorkbookError::InvalidReference)?;
         *cell = value;
+        table.replace_rows(rows)?;
         Ok(())
+    }
+
+    pub fn replace_in_sheet(
+        &mut self,
+        sheet: &str,
+        old_value: &Value,
+        new_value: &Value,
+    ) -> Result<usize, WorkbookError> {
+        self.ensure_writable(sheet)?;
+        let table = self.catalog.get_table_mut(sheet).ok_or_else(|| {
+            WorkbookError::Db(monumentum_db::error::DbError::table_not_found(sheet).to_string())
+        })?;
+
+        let mut rows = table.rows().to_vec();
+        let mut count: usize = 0;
+        for row in &mut rows {
+            for cell in row.values_mut() {
+                if cell == old_value {
+                    *cell = new_value.clone();
+                    count = count.saturating_add(1);
+                }
+            }
+        }
+        table.replace_rows(rows)?;
+        Ok(count)
     }
 
     pub fn find_in_sheet(
@@ -58,27 +86,5 @@ impl<S: StorageEngine> Workbook<S> {
             }
         }
         Ok(matches)
-    }
-
-    pub fn replace_in_sheet(
-        &mut self,
-        sheet: &str,
-        old_value: &Value,
-        new_value: &Value,
-    ) -> Result<usize, WorkbookError> {
-        self.ensure_writable(sheet)?;
-        let table = self.catalog.get_table_mut(sheet).ok_or_else(|| {
-            WorkbookError::Db(monumentum_db::error::DbError::table_not_found(sheet).to_string())
-        })?;
-        let mut count: usize = 0;
-        for row in table.rows_mut() {
-            for cell in row.values_mut() {
-                if cell == old_value {
-                    *cell = new_value.clone();
-                    count = count.saturating_add(1);
-                }
-            }
-        }
-        Ok(count)
     }
 }
