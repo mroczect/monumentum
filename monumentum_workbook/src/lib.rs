@@ -9,7 +9,6 @@ pub mod menu;
 pub mod query;
 pub mod transaction;
 pub use error::WorkbookError;
-use monumentum_db::core::row::Row;
 
 #[derive(Debug)]
 pub struct Workbook<S: StorageEngine> {
@@ -139,7 +138,7 @@ impl<S: StorageEngine> Workbook<S> {
         Ok(())
     }
 
-    pub fn query<'a>(&'a self, sheet: &str) -> query::Query<'a, S, fn(&Row) -> bool> {
+    pub fn query<'a>(&'a self, sheet: &str) -> query::Query<'a, S> {
         query::Query::new(self, sheet)
     }
 }
