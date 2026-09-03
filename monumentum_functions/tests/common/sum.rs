@@ -34,7 +34,7 @@ fn sum_mixed() {
 fn sum_empty_args_errors() {
     assert!(matches!(
         call_function("SUM", &[]),
-        Err(FormulaError::Eval(_))
+        Err(FormulaError::WrongArity(_))
     ));
 }
 

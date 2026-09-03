@@ -10,17 +10,17 @@ pub trait StorageEngine {
     fn load_catalog(&mut self) -> Result<Catalog, DbError>;
     fn save_catalog(&mut self, catalog: &Catalog) -> Result<(), DbError>;
     fn get_table(&self, name: &str) -> Option<&Table>;
-    fn get_table_mut(&mut self, name: &str) -> Option<&mut Table>;
 }
 
 const SEQ_BYTES: usize = 8;
 const MAX_SNAPSHOT_SIZE: u64 = 256 * 1024 * 1024;
 
-fn encode_snapshot(seq: u64, catalog: &Catalog) -> Vec<u8> {
+fn encode_snapshot(seq: u64, catalog: &Catalog) -> Result<Vec<u8>, DbError> {
     let mut buf = Vec::with_capacity(SEQ_BYTES + 64);
     buf.extend_from_slice(&seq.to_le_bytes());
-    buf.extend_from_slice(&encode_catalog(catalog));
-    buf
+    let catalog_bytes = encode_catalog(catalog)?;
+    buf.extend_from_slice(&catalog_bytes);
+    Ok(buf)
 }
 
 fn decode_snapshot(data: &[u8]) -> Result<(u64, Catalog), DbError> {
@@ -94,7 +94,7 @@ impl FileStorage {
     }
 
     pub fn checkpoint(&mut self) -> Result<(), DbError> {
-        let data = encode_snapshot(self.current_seq, &self.catalog);
+        let data = encode_snapshot(self.current_seq, &self.catalog)?;
         write_all_atomic(&self.data_path, &data)?;
         self.wal.truncate()?;
         Ok(())
@@ -102,17 +102,19 @@ impl FileStorage {
 
     pub fn reload_from_disk(&mut self) -> Result<Catalog, DbError> {
         let data = std::fs::read(&self.data_path)?;
-        let (seq, cat) = decode_snapshot(&data)?;
+        let (snapshot_seq, snapshot_cat) = decode_snapshot(&data)?;
         let records = self.wal.read_all()?;
-        let mut current_seq = seq;
-        let mut catalog = cat;
+
+        let mut current_seq = snapshot_seq;
+        let mut catalog = snapshot_cat;
         for record in records {
-            let (seq, cat) = decode_snapshot(&record)?;
-            if seq > current_seq {
-                current_seq = seq;
-                catalog = cat;
+            let (record_seq, record_cat) = decode_snapshot(&record)?;
+            if record_seq > current_seq {
+                current_seq = record_seq;
+                catalog = record_cat;
             }
         }
+
         self.catalog = catalog.clone();
         self.current_seq = current_seq;
         Ok(catalog)
@@ -130,22 +132,19 @@ impl StorageEngine for FileStorage {
     }
 
     fn save_catalog(&mut self, catalog: &Catalog) -> Result<(), DbError> {
-        self.current_seq = self
+        let new_seq = self
             .current_seq
             .checked_add(1)
             .ok_or_else(|| DbError::invalid_operation("sequence number overflow"))?;
-        let data = encode_snapshot(self.current_seq, catalog);
+        let data = encode_snapshot(new_seq, catalog)?;
         self.wal.append(&data)?;
+        self.current_seq = new_seq;
         self.catalog = catalog.clone();
         Ok(())
     }
 
     fn get_table(&self, name: &str) -> Option<&Table> {
         self.catalog.get_table(name)
-    }
-
-    fn get_table_mut(&mut self, name: &str) -> Option<&mut Table> {
-        self.catalog.get_table_mut(name)
     }
 }
 
@@ -173,10 +172,6 @@ impl StorageEngine for InMemoryStorage {
 
     fn get_table(&self, name: &str) -> Option<&Table> {
         self.catalog.get_table(name)
-    }
-
-    fn get_table_mut(&mut self, name: &str) -> Option<&mut Table> {
-        self.catalog.get_table_mut(name)
     }
 }
 

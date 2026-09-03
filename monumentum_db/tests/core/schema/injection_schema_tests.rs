@@ -16,7 +16,6 @@ fn text_col(name: &str) -> ColumnDef {
 
 #[test]
 fn schema_allows_sql_keywords_as_identifiers() -> Result<(), DbError> {
-    // "SELECT", "DROP", "TABLE" hanyalah string biasa, tidak dieksekusi
     let schema = TableSchema::try_new("SELECT", vec![int_col("DROP")])?;
     assert_eq!(schema.name(), "SELECT");
     assert_eq!(schema.columns()[0].name(), "DROP");

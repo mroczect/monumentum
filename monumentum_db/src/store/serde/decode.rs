@@ -7,6 +7,16 @@ use crate::core::schema::table_schema::TableSchema;
 use crate::core::table::Table;
 use std::io::Cursor;
 
+fn ensure_fully_consumed(cursor: &Cursor<&[u8]>) -> Result<(), DbError> {
+    if cursor.position() != cursor.get_ref().len() as u64 {
+        return Err(DbError::corruption(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "trailing bytes after decoding",
+        )));
+    }
+    Ok(())
+}
+
 pub fn decode_column_def(cursor: &mut Cursor<&[u8]>) -> Result<ColumnDef, DbError> {
     let name_bytes = read_bytes(cursor)?;
     let name = String::from_utf8(name_bytes).map_err(|e| {
@@ -28,6 +38,7 @@ pub fn decode_column_def(cursor: &mut Cursor<&[u8]>) -> Result<ColumnDef, DbErro
         let val_bytes = read_bytes(cursor)?;
         let mut val_cursor = Cursor::new(&val_bytes[..]);
         let val = decode_value(&mut val_cursor)?;
+        ensure_fully_consumed(&val_cursor)?;
         col.set_default(Some(val));
     }
 
@@ -57,6 +68,7 @@ pub fn decode_column_def(cursor: &mut Cursor<&[u8]>) -> Result<ColumnDef, DbErro
         let val_bytes = read_bytes(cursor)?;
         let mut val_cursor = Cursor::new(&val_bytes[..]);
         let value = decode_value(&mut val_cursor)?;
+        ensure_fully_consumed(&val_cursor)?;
         col.set_check(Some(crate::core::schema::column::CheckConstraint {
             column,
             op,
@@ -92,11 +104,13 @@ pub fn decode_column_def(cursor: &mut Cursor<&[u8]>) -> Result<ColumnDef, DbErro
             let val_bytes = read_bytes(cursor)?;
             let mut val_cursor = Cursor::new(&val_bytes[..]);
             let value = decode_value(&mut val_cursor)?;
+            ensure_fully_consumed(&val_cursor)?;
             allowed.push(value);
         }
         col.set_allowed_values(Some(allowed));
     }
 
+    ensure_fully_consumed(cursor)?;
     Ok(col)
 }
 
@@ -126,9 +140,12 @@ pub fn decode_table_schema(cursor: &mut Cursor<&[u8]>) -> Result<TableSchema, Db
         let col_bytes = read_bytes(cursor)?;
         let mut col_cursor = Cursor::new(&col_bytes[..]);
         let col = decode_column_def(&mut col_cursor)?;
+        ensure_fully_consumed(&col_cursor)?;
         columns.push(col);
     }
-    TableSchema::try_new(name, columns)
+    let schema = TableSchema::try_new(name, columns)?;
+    ensure_fully_consumed(cursor)?;
+    Ok(schema)
 }
 
 pub fn decode_row(cursor: &mut Cursor<&[u8]>) -> Result<Row, DbError> {
@@ -150,15 +167,19 @@ pub fn decode_row(cursor: &mut Cursor<&[u8]>) -> Result<Row, DbError> {
         let value_bytes = read_bytes(cursor)?;
         let mut val_cursor = Cursor::new(&value_bytes[..]);
         let value = decode_value(&mut val_cursor)?;
+        ensure_fully_consumed(&val_cursor)?;
         values.push(value);
     }
-    Ok(Row::new(values))
+    let row = Row::new(values);
+    ensure_fully_consumed(cursor)?;
+    Ok(row)
 }
 
 pub fn decode_table(cursor: &mut Cursor<&[u8]>) -> Result<Table, DbError> {
     let schema_bytes = read_bytes(cursor)?;
     let mut schema_cursor = Cursor::new(&schema_bytes[..]);
     let schema = decode_table_schema(&mut schema_cursor)?;
+    ensure_fully_consumed(&schema_cursor)?;
 
     let read_only = read_u8(cursor)? != 0;
 
@@ -181,8 +202,10 @@ pub fn decode_table(cursor: &mut Cursor<&[u8]>) -> Result<Table, DbError> {
         let row_bytes = read_bytes(cursor)?;
         let mut row_cursor = Cursor::new(&row_bytes[..]);
         let row = decode_row(&mut row_cursor)?;
-        table.insert(row)?;
+        ensure_fully_consumed(&row_cursor)?;
+        table.insert(row).map_err(DbError::corruption)?;
     }
+    ensure_fully_consumed(cursor)?;
     Ok(table)
 }
 
@@ -195,7 +218,9 @@ pub fn decode_catalog(data: &[u8]) -> Result<Catalog, DbError> {
             format!("unsupported format version {version}"),
         )));
     }
-    decode_catalog_inner(&mut cursor)
+    let catalog = decode_catalog_inner(&mut cursor)?;
+    ensure_fully_consumed(&cursor)?;
+    Ok(catalog)
 }
 
 fn decode_catalog_inner(cursor: &mut Cursor<&[u8]>) -> Result<Catalog, DbError> {
@@ -222,7 +247,9 @@ fn decode_catalog_inner(cursor: &mut Cursor<&[u8]>) -> Result<Catalog, DbError> 
             ))
         })?;
         let table_bytes = read_bytes(cursor)?;
-        let table = decode_table(&mut Cursor::new(&table_bytes[..]))?;
+        let mut table_cursor = Cursor::new(&table_bytes[..]);
+        let table = decode_table(&mut table_cursor)?;
+        ensure_fully_consumed(&table_cursor)?;
         catalog.create_table(table.schema().clone())?;
         *catalog
             .get_table_mut(&name)

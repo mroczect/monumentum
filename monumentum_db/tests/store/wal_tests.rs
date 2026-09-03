@@ -1,62 +1,40 @@
 use monumentum_db::error::DbError;
 use monumentum_db::store::wal::Wal;
 use std::fs;
-use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
 
-fn temp_file_path() -> PathBuf {
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
-    let unique = format!("monumentum_wal_test_{}_{}", std::process::id(), nanos);
-    std::env::temp_dir().join(unique)
-}
-
-fn cleanup(path: &Path) {
-    if path.exists() {
-        let _ = fs::remove_file(path);
-    }
-}
+use crate::common::TempPath;
 
 #[test]
 fn open_creates_new_file() -> Result<(), DbError> {
-    let path = temp_file_path();
-    cleanup(&path);
-
-    let mut wal = Wal::open(&path)?;
+    let temp = TempPath::new_file("monumentum_wal_test");
+    let mut wal = Wal::open(temp.path())?;
     let records = wal.read_all()?;
     assert!(records.is_empty());
     wal.unlock()?;
 
-    assert!(path.exists());
-    cleanup(&path);
+    assert!(temp.path().exists());
     Ok(())
 }
 
 #[test]
 fn open_existing_file_not_truncated() -> Result<(), DbError> {
-    let path = temp_file_path();
-    cleanup(&path);
-    fs::write(&path, b"existing")?;
+    let temp = TempPath::new_file("monumentum_wal_test");
+    fs::write(temp.path(), b"existing")?;
 
-    let mut wal = Wal::open(&path)?;
+    let mut wal = Wal::open(temp.path())?;
     let read_result = wal.read_all();
     assert!(read_result.is_err());
     wal.unlock()?;
 
-    let content = fs::read(&path)?;
+    let content = fs::read(temp.path())?;
     assert_eq!(content, b"existing");
-
-    cleanup(&path);
     Ok(())
 }
 
 #[test]
 fn append_and_read_back() -> Result<(), DbError> {
-    let path = temp_file_path();
-    cleanup(&path);
-    let mut wal = Wal::open(&path)?;
+    let temp = TempPath::new_file("monumentum_wal_test");
+    let mut wal = Wal::open(temp.path())?;
 
     let payload1 = b"first".to_vec();
     let payload2 = b"second".to_vec();
@@ -70,15 +48,13 @@ fn append_and_read_back() -> Result<(), DbError> {
     assert_eq!(records[1], payload2);
 
     wal.unlock()?;
-    cleanup(&path);
     Ok(())
 }
 
 #[test]
 fn append_empty_payload() -> Result<(), DbError> {
-    let path = temp_file_path();
-    cleanup(&path);
-    let mut wal = Wal::open(&path)?;
+    let temp = TempPath::new_file("monumentum_wal_test");
+    let mut wal = Wal::open(temp.path())?;
 
     let payload = Vec::new();
     wal.append(&payload)?;
@@ -88,15 +64,13 @@ fn append_empty_payload() -> Result<(), DbError> {
     assert_eq!(records[0], payload);
 
     wal.unlock()?;
-    cleanup(&path);
     Ok(())
 }
 
 #[test]
 fn append_multiple_records_and_read_back_in_order() -> Result<(), DbError> {
-    let path = temp_file_path();
-    cleanup(&path);
-    let mut wal = Wal::open(&path)?;
+    let temp = TempPath::new_file("monumentum_wal_test");
+    let mut wal = Wal::open(temp.path())?;
 
     let payloads = vec![
         b"alpha".to_vec(),
@@ -113,27 +87,23 @@ fn append_multiple_records_and_read_back_in_order() -> Result<(), DbError> {
     assert_eq!(records, payloads);
 
     wal.unlock()?;
-    cleanup(&path);
     Ok(())
 }
 
 #[test]
 fn sync_succeeds() -> Result<(), DbError> {
-    let path = temp_file_path();
-    cleanup(&path);
-    let mut wal = Wal::open(&path)?;
+    let temp = TempPath::new_file("monumentum_wal_test");
+    let mut wal = Wal::open(temp.path())?;
 
     wal.sync()?;
     wal.unlock()?;
-    cleanup(&path);
     Ok(())
 }
 
 #[test]
 fn truncate_clears_all_data() -> Result<(), DbError> {
-    let path = temp_file_path();
-    cleanup(&path);
-    let mut wal = Wal::open(&path)?;
+    let temp = TempPath::new_file("monumentum_wal_test");
+    let mut wal = Wal::open(temp.path())?;
 
     wal.append(b"data")?;
     wal.truncate()?;
@@ -142,40 +112,34 @@ fn truncate_clears_all_data() -> Result<(), DbError> {
     assert!(records.is_empty());
 
     wal.unlock()?;
-    cleanup(&path);
     Ok(())
 }
 
 #[test]
 fn unlock_succeeds() -> Result<(), DbError> {
-    let path = temp_file_path();
-    cleanup(&path);
-    let mut wal = Wal::open(&path)?;
+    let temp = TempPath::new_file("monumentum_wal_test");
+    let mut wal = Wal::open(temp.path())?;
 
     wal.unlock()?;
-    cleanup(&path);
     Ok(())
 }
 
 #[test]
 fn read_all_on_empty_file_returns_empty() -> Result<(), DbError> {
-    let path = temp_file_path();
-    cleanup(&path);
-    let mut wal = Wal::open(&path)?;
+    let temp = TempPath::new_file("monumentum_wal_test");
+    let mut wal = Wal::open(temp.path())?;
 
     let records = wal.read_all()?;
     assert!(records.is_empty());
 
     wal.unlock()?;
-    cleanup(&path);
     Ok(())
 }
 
 #[test]
 fn read_all_after_truncate_returns_empty() -> Result<(), DbError> {
-    let path = temp_file_path();
-    cleanup(&path);
-    let mut wal = Wal::open(&path)?;
+    let temp = TempPath::new_file("monumentum_wal_test");
+    let mut wal = Wal::open(temp.path())?;
 
     wal.append(b"something")?;
     wal.truncate()?;
@@ -183,16 +147,27 @@ fn read_all_after_truncate_returns_empty() -> Result<(), DbError> {
     assert!(records.is_empty());
 
     wal.unlock()?;
-    cleanup(&path);
     Ok(())
 }
 
 #[test]
-fn multiple_open_same_path_should_fail_or_wait_due_to_lock() -> Result<(), DbError> {
-    let path = temp_file_path();
-    cleanup(&path);
-    let wal1 = Wal::open(&path)?;
+fn lock_prevents_second_open_until_first_dropped() -> Result<(), DbError> {
+    let temp = TempPath::new_file("monumentum_wal_test");
+    let wal1 = Wal::open(temp.path())?;
 
+    let path_clone = temp.path().to_path_buf();
+    let handle = std::thread::spawn(move || {
+        let result = Wal::open(&path_clone);
+        result.is_ok()
+    });
+
+    std::thread::sleep(std::time::Duration::from_millis(100));
     drop(wal1);
+
+    let second_succeeded = handle.join().expect("thread panicked");
+    assert!(
+        second_succeeded,
+        "second open should succeed after lock release"
+    );
     Ok(())
 }

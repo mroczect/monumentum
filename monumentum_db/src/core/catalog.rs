@@ -39,6 +39,11 @@ impl Catalog {
         if !self.tables.contains_key(name) {
             return Err(DbError::table_not_found(name));
         }
+        if table.schema().name() != name {
+            return Err(DbError::invalid_operation(
+                "table schema name does not match catalog key",
+            ));
+        }
         self.tables.insert(name.to_string(), table);
         Ok(())
     }

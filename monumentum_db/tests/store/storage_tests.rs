@@ -6,17 +6,8 @@ use monumentum_db::core::value::Value;
 use monumentum_db::error::DbError;
 use monumentum_db::store::storage::{FileStorage, InMemoryStorage, StorageEngine};
 use std::fs;
-use std::path::PathBuf;
-use std::time::{SystemTime, UNIX_EPOCH};
 
-fn temp_file_path() -> PathBuf {
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
-    let unique = format!("monumentum_storage_test_{}_{}", std::process::id(), nanos);
-    std::env::temp_dir().join(unique)
-}
+use crate::common::TempPath;
 
 fn create_sample_schema() -> Result<TableSchema, DbError> {
     let mut id_col = ColumnDef::new("id", DataType::Integer);
@@ -65,23 +56,26 @@ fn in_memory_storage_get_table() -> Result<(), DbError> {
     let mut storage = InMemoryStorage::new();
     let catalog = create_sample_catalog()?;
     storage.save_catalog(&catalog)?;
-    let table = storage.get_table("users");
-    assert!(table.is_some());
+    assert!(storage.get_table("users").is_some());
     Ok(())
 }
 
 #[test]
-fn in_memory_storage_get_table_mut() -> Result<(), DbError> {
+fn in_memory_storage_mutate_via_catalog() -> Result<(), DbError> {
     let mut storage = InMemoryStorage::new();
     let catalog = create_sample_catalog()?;
     storage.save_catalog(&catalog)?;
-    if let Some(table) = storage.get_table_mut("users") {
+
+    let mut loaded = storage.load_catalog()?;
+    if let Some(table) = loaded.get_table_mut("users") {
         table.insert(Row::new(vec![Value::from(1_i64)]))?;
     } else {
         return Err(DbError::table_not_found("users"));
     }
-    let loaded = storage.load_catalog()?;
-    if let Some(table) = loaded.get_table("users") {
+    storage.save_catalog(&loaded)?;
+
+    let final_catalog = storage.load_catalog()?;
+    if let Some(table) = final_catalog.get_table("users") {
         assert_eq!(table.len(), 1);
     } else {
         return Err(DbError::table_not_found("users"));
@@ -91,90 +85,79 @@ fn in_memory_storage_get_table_mut() -> Result<(), DbError> {
 
 #[test]
 fn file_storage_open_creates_new_files() -> Result<(), DbError> {
-    let path = temp_file_path();
-    let storage = FileStorage::open(&path)?;
+    let temp = TempPath::new_file("monumentum_storage_test");
+    let storage = FileStorage::open(temp.path())?;
 
-    assert!(!path.exists());
-    assert!(path.with_extension("wal").exists());
+    assert!(temp.path().with_extension("wal").exists());
 
     close_storage(storage)?;
-    fs::remove_file(&path).ok();
-    fs::remove_file(path.with_extension("wal")).ok();
     Ok(())
 }
 
 #[test]
 fn file_storage_open_loads_empty_catalog_when_no_data() -> Result<(), DbError> {
-    let path = temp_file_path();
-    let mut storage = FileStorage::open(&path)?;
+    let temp = TempPath::new_file("monumentum_storage_test");
+    let mut storage = FileStorage::open(temp.path())?;
     let catalog = storage.load_catalog()?;
     assert!(catalog.is_empty());
     close_storage(storage)?;
-    fs::remove_file(&path).ok();
-    fs::remove_file(path.with_extension("wal")).ok();
     Ok(())
 }
 
 #[test]
 fn file_storage_save_and_load_catalog() -> Result<(), DbError> {
-    let path = temp_file_path();
-    let mut storage = FileStorage::open(&path)?;
+    let temp = TempPath::new_file("monumentum_storage_test");
+    let mut storage = FileStorage::open(temp.path())?;
     let catalog = create_sample_catalog()?;
     storage.save_catalog(&catalog)?;
     let loaded = storage.load_catalog()?;
     assert_eq!(catalog, loaded);
     close_storage(storage)?;
-    fs::remove_file(&path).ok();
-    fs::remove_file(path.with_extension("wal")).ok();
     Ok(())
 }
 
 #[test]
 fn file_storage_persists_across_reopen() -> Result<(), DbError> {
-    let path = temp_file_path();
+    let temp = TempPath::new_file("monumentum_storage_test");
     let catalog = create_sample_catalog_with_row()?;
 
     {
-        let mut storage = FileStorage::open(&path)?;
+        let mut storage = FileStorage::open(temp.path())?;
         storage.save_catalog(&catalog)?;
         close_storage(storage)?;
     }
 
-    let mut storage2 = FileStorage::open(&path)?;
+    let mut storage2 = FileStorage::open(temp.path())?;
     let loaded = storage2.load_catalog()?;
     assert_eq!(catalog, loaded);
     close_storage(storage2)?;
-    fs::remove_file(&path).ok();
-    fs::remove_file(path.with_extension("wal")).ok();
     Ok(())
 }
 
 #[test]
 fn file_storage_checkpoint_writes_snapshot_and_truncates_wal() -> Result<(), DbError> {
-    let path = temp_file_path();
-    let mut storage = FileStorage::open(&path)?;
+    let temp = TempPath::new_file("monumentum_storage_test");
+    let mut storage = FileStorage::open(temp.path())?;
     let catalog = create_sample_catalog_with_row()?;
     storage.save_catalog(&catalog)?;
     storage.checkpoint()?;
 
-    let wal_path = path.with_extension("wal");
+    let wal_path = temp.path().with_extension("wal");
     let wal_metadata = fs::metadata(&wal_path)?;
     assert_eq!(wal_metadata.len(), 0);
 
     close_storage(storage)?;
-    let mut storage2 = FileStorage::open(&path)?;
+    let mut storage2 = FileStorage::open(temp.path())?;
     let loaded = storage2.load_catalog()?;
     assert_eq!(loaded, catalog);
     close_storage(storage2)?;
-    fs::remove_file(&path).ok();
-    fs::remove_file(wal_path).ok();
     Ok(())
 }
 
 #[test]
 fn file_storage_recovery_prefers_latest_wal_record() -> Result<(), DbError> {
-    let path = temp_file_path();
-    let mut storage = FileStorage::open(&path)?;
+    let temp = TempPath::new_file("monumentum_storage_test");
+    let mut storage = FileStorage::open(temp.path())?;
 
     let catalog_v1 = create_sample_catalog()?;
     storage.save_catalog(&catalog_v1)?;
@@ -192,24 +175,42 @@ fn file_storage_recovery_prefers_latest_wal_record() -> Result<(), DbError> {
 
     close_storage(storage)?;
 
-    let mut storage2 = FileStorage::open(&path)?;
+    let mut storage2 = FileStorage::open(temp.path())?;
     let loaded = storage2.load_catalog()?;
     assert_eq!(loaded, catalog_v3);
     close_storage(storage2)?;
-    fs::remove_file(&path).ok();
-    fs::remove_file(path.with_extension("wal")).ok();
+    Ok(())
+}
+
+#[test]
+fn file_storage_ignores_lower_sequence_wal_record() -> Result<(), DbError> {
+    let temp = TempPath::new_file("monumentum_storage_test");
+    let mut storage = FileStorage::open(temp.path())?;
+
+    let catalog_v1 = create_sample_catalog()?;
+    storage.save_catalog(&catalog_v1)?;
+
+    let catalog_v2 = create_sample_catalog_with_row()?;
+    storage.save_catalog(&catalog_v2)?;
+
+    storage.checkpoint()?;
+
+    close_storage(storage)?;
+
+    let mut storage2 = FileStorage::open(temp.path())?;
+    let loaded = storage2.load_catalog()?;
+    assert_eq!(loaded, catalog_v2);
+    close_storage(storage2)?;
     Ok(())
 }
 
 #[test]
 fn file_storage_close_unlocks_file() -> Result<(), DbError> {
-    let path = temp_file_path();
-    let storage = FileStorage::open(&path)?;
+    let temp = TempPath::new_file("monumentum_storage_test");
+    let storage = FileStorage::open(temp.path())?;
     close_storage(storage)?;
 
-    let storage2 = FileStorage::open(&path)?;
+    let storage2 = FileStorage::open(temp.path())?;
     close_storage(storage2)?;
-    fs::remove_file(&path).ok();
-    fs::remove_file(path.with_extension("wal")).ok();
     Ok(())
 }

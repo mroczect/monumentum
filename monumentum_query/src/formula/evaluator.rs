@@ -37,9 +37,10 @@ pub fn evaluate(
             for arg in args {
                 match arg {
                     Expr::Range(range) => {
-                        let cell_count = (range.end.row - range.start.row + 1) as usize
-                            * (range.end.col - range.start.col + 1) as usize;
-                        if cell_count > MAX_RANGE_CELLS {
+                        let rows = u64::from(range.end.row - range.start.row + 1);
+                        let cols = u64::from(range.end.col - range.start.col + 1);
+                        let cell_count = rows * cols;
+                        if cell_count > MAX_RANGE_CELLS as u64 {
                             return Err(FormulaError::Eval("range too large".to_string()));
                         }
                         for cell in range.iter() {
@@ -288,7 +289,9 @@ fn pow_values(l: Value, r: Value) -> Result<Value, FormulaError> {
         (Value::Integer(a), Value::Integer(b)) => {
             if b.as_i64() >= 0 {
                 let base = a.as_i64();
-                let exp = b.as_i64() as u32;
+                let exp_i64 = b.as_i64();
+                let exp = u32::try_from(exp_i64)
+                    .map_err(|_| FormulaError::Eval("exponent too large".to_string()))?;
                 let result = base
                     .checked_pow(exp)
                     .ok_or_else(|| FormulaError::Eval("integer overflow".to_string()))?;

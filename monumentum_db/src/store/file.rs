@@ -41,7 +41,7 @@ pub fn write_all_atomic(path: &Path, data: &[u8]) -> Result<(), DbError> {
     let tmp_path = unique_tmp_path(
         parent,
         path.file_name().and_then(|s| s.to_str()).unwrap_or("tmp"),
-    );
+    )?;
 
     {
         let mut tmp_options = OpenOptions::new();
@@ -68,18 +68,28 @@ pub fn write_all_atomic(path: &Path, data: &[u8]) -> Result<(), DbError> {
     Ok(())
 }
 
-fn unique_tmp_path(parent: &Path, base_name: &str) -> PathBuf {
+fn unique_tmp_path(parent: &Path, base_name: &str) -> Result<PathBuf, DbError> {
     let mut random_bytes = [0u8; 16];
-    if let Ok(mut f) = File::open("/dev/urandom") {
-        let _ = f.read_exact(&mut random_bytes);
-    }
+    let mut f = File::open("/dev/urandom").map_err(|e| {
+        DbError::Io(std::io::Error::new(
+            e.kind(),
+            format!("failed to open /dev/urandom for temporary file generation: {e}"),
+        ))
+    })?;
+    f.read_exact(&mut random_bytes).map_err(|e| {
+        DbError::Io(std::io::Error::new(
+            e.kind(),
+            format!("failed to read from /dev/urandom: {e}"),
+        ))
+    })?;
+
     let random_hex: String = random_bytes.iter().map(|b| format!("{b:02x}")).collect();
-    parent.join(format!(
+    Ok(parent.join(format!(
         ".{}.{}.{}.tmp",
         base_name,
         std::process::id(),
         random_hex
-    ))
+    )))
 }
 
 pub fn append_to_file(file: &mut File, data: &[u8]) -> Result<(), DbError> {

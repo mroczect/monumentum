@@ -7,16 +7,7 @@ use std::path::Path;
 
 #[derive(Debug)]
 pub struct Wal {
-    file: File,
-}
-
-impl Drop for Wal {
-    fn drop(&mut self) {
-        #[cfg(unix)]
-        {
-            let _ = self.file.unlock();
-        }
-    }
+    file: Option<File>,
 }
 
 impl Wal {
@@ -26,35 +17,65 @@ impl Wal {
         {
             file.lock()?;
         }
-        Ok(Self { file })
+        Ok(Self { file: Some(file) })
     }
 
     pub fn append(&mut self, payload: &[u8]) -> Result<(), DbError> {
-        append_record(&mut self.file, payload)?;
-        sync_file(&self.file)?;
+        let file = self
+            .file
+            .as_mut()
+            .ok_or_else(|| DbError::invalid_operation("WAL is already unlocked"))?;
+        append_record(file, payload)?;
+        sync_file(file)?;
         Ok(())
     }
 
     pub fn sync(&self) -> Result<(), DbError> {
-        sync_file(&self.file)
+        if let Some(file) = &self.file {
+            sync_file(file)?;
+        } else {
+            return Err(DbError::invalid_operation("WAL is already unlocked"));
+        }
+        Ok(())
     }
 
     pub fn read_all(&mut self) -> Result<Vec<Vec<u8>>, DbError> {
-        read_records(&mut self.file)
+        let file = self
+            .file
+            .as_mut()
+            .ok_or_else(|| DbError::invalid_operation("WAL is already unlocked"))?;
+        read_records(file)
     }
 
     pub fn truncate(&mut self) -> Result<(), DbError> {
-        self.file.set_len(0)?;
-        self.file.sync_all()?;
-        self.file.seek(SeekFrom::Start(0))?;
+        let file = self
+            .file
+            .as_mut()
+            .ok_or_else(|| DbError::invalid_operation("WAL is already unlocked"))?;
+        file.set_len(0)?;
+        file.sync_all()?;
+        file.seek(SeekFrom::Start(0))?;
         Ok(())
     }
 
     pub fn unlock(&mut self) -> Result<(), DbError> {
-        #[cfg(unix)]
-        {
-            self.file.unlock()?;
+        if let Some(file) = self.file.take() {
+            #[cfg(unix)]
+            {
+                file.unlock()?;
+            }
         }
         Ok(())
+    }
+}
+
+impl Drop for Wal {
+    fn drop(&mut self) {
+        if let Some(file) = self.file.take() {
+            #[cfg(unix)]
+            {
+                let _ = file.unlock();
+            }
+        }
     }
 }

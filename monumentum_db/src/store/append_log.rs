@@ -189,3 +189,18 @@ pub fn read_records(file: &mut File) -> Result<Vec<Vec<u8>>, DbError> {
         records.push(payload);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::crc32;
+
+    #[test]
+    fn crc32_known_value() {
+        assert_eq!(crc32(b"123456789"), 0xCBF43926);
+    }
+
+    #[test]
+    fn crc32_empty() {
+        assert_eq!(crc32(b""), 0);
+    }
+}

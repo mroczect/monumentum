@@ -69,6 +69,15 @@ pub(crate) fn read_bytes(cursor: &mut Cursor<&[u8]>) -> Result<Vec<u8>, DbError>
             format!("declared length {} exceeds maximum allowed", len),
         )));
     }
+
+    let remaining = cursor.get_ref().len() - cursor.position() as usize;
+    if len > remaining {
+        return Err(DbError::corruption(std::io::Error::new(
+            std::io::ErrorKind::UnexpectedEof,
+            "not enough bytes for declared length",
+        )));
+    }
+
     let mut buf = vec![0u8; len];
     cursor.read_exact(&mut buf)?;
     Ok(buf)
@@ -137,8 +146,10 @@ pub(crate) fn decode_value(cursor: &mut Cursor<&[u8]>) -> Result<Value, DbError>
     match tag {
         TAG_NULL => Ok(Value::Null),
         TAG_INTEGER => {
-            let raw = read_u64(cursor)?;
-            Ok(Value::Integer(Integer::new(raw as i64)))
+            let mut b = [0u8; 8];
+            cursor.read_exact(&mut b)?;
+            let signed = i64::from_le_bytes(b);
+            Ok(Value::Integer(Integer::new(signed)))
         }
         TAG_FLOAT => {
             let mut b = [0u8; 8];
