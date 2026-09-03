@@ -6,8 +6,8 @@ use monumentum_query::formula::FormulaError;
 #[allow(clippy::cast_precision_loss, clippy::wildcard_enum_match_arm)]
 pub(super) fn evaluate(args: &[Value]) -> Result<Value, FormulaError> {
     if args.is_empty() {
-        return Err(FormulaError::Eval(
-            "MAX requires at least one argument".to_string(),
+        return Err(FormulaError::WrongArity(
+            "MAX expects at least one argument".to_string(),
         ));
     }
 
@@ -62,17 +62,20 @@ pub(super) fn evaluate(args: &[Value]) -> Result<Value, FormulaError> {
     }
 }
 
-#[allow(clippy::cast_precision_loss, clippy::wildcard_enum_match_arm)]
 fn compare_numeric(a: &Value, b: &Value) -> Result<Ordering, FormulaError> {
-    let a_num = match a {
-        Value::Integer(i) => i.as_i64() as f64,
-        Value::Float(f) => f.as_f64(),
-        _ => return Err(FormulaError::TypeMismatch("not numeric".to_string())),
-    };
-    let b_num = match b {
-        Value::Integer(i) => i.as_i64() as f64,
-        Value::Float(f) => f.as_f64(),
-        _ => return Err(FormulaError::TypeMismatch("not numeric".to_string())),
-    };
-    Ok(a_num.partial_cmp(&b_num).unwrap_or(Ordering::Equal))
+    match (a, b) {
+        (Value::Integer(x), Value::Integer(y)) => Ok(x.as_i64().cmp(&y.as_i64())),
+        (Value::Float(x), Value::Float(y)) => Ok(x.as_f64().total_cmp(&y.as_f64())),
+        (Value::Integer(i), Value::Float(f)) => {
+            #[allow(clippy::cast_precision_loss)]
+            let i_f64 = i.as_i64() as f64;
+            Ok(i_f64.total_cmp(&f.as_f64()))
+        }
+        (Value::Float(f), Value::Integer(i)) => {
+            #[allow(clippy::cast_precision_loss)]
+            let i_f64 = i.as_i64() as f64;
+            Ok(f.as_f64().total_cmp(&i_f64))
+        }
+        _ => Err(FormulaError::TypeMismatch("not numeric".to_string())),
+    }
 }
