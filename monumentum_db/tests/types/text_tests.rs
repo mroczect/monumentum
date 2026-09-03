@@ -1,4 +1,5 @@
 use monumentum_db::types::Text;
+use proptest::prelude::*;
 
 #[test]
 fn new_empty_string() {
@@ -105,4 +106,46 @@ fn as_ref_str() {
     let text = Text::new("data".to_string());
     let r: &str = text.as_ref();
     assert_eq!(r, "data");
+}
+
+proptest! {
+    #![proptest_config(proptest::test_runner::Config::with_cases(64))]
+
+    #[test]
+    fn text_new_and_accessors_roundtrip(s in ".*") {
+        let text = Text::new(s.clone());
+        prop_assert_eq!(text.as_str(), s.as_str());
+        prop_assert_eq!(text.len(), s.len());
+        prop_assert_eq!(text.is_empty(), s.is_empty());
+        prop_assert_eq!(text.as_bytes(), s.as_bytes());
+    }
+
+    #[test]
+    fn text_lowercase_uppercase_roundtrip(s in ".*") {
+        let text = Text::new(s.clone());
+        let lower = text.to_lowercase();
+        let upper = text.to_uppercase();
+        prop_assert_eq!(lower.as_str().to_lowercase(), lower.as_str());
+        prop_assert_eq!(upper.as_str().to_uppercase(), upper.as_str());
+    }
+
+    #[test]
+    fn text_contains_ignore_case_reflexive(s in ".*") {
+        let text = Text::new(s.clone());
+        prop_assert!(text.contains_ignore_case(&s));
+    }
+
+    #[test]
+    fn text_from_str_and_string_equality(s in ".*") {
+        let from_str = Text::from(s.as_str());
+        let from_string = Text::from(s.clone());
+        prop_assert_eq!(from_str, from_string);
+    }
+
+    #[test]
+    fn text_clone_equality(s in ".*") {
+        let text = Text::new(s);
+        let cloned = text.clone();
+        prop_assert_eq!(text, cloned);
+    }
 }
