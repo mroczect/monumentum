@@ -57,13 +57,15 @@ impl<S: StorageEngine> Workbook<S> {
     ) -> Result<(), WorkbookError> {
         self.ensure_writable(sheet)?;
         let table = self.catalog.get_table(sheet).ok_or_else(|| {
-            WorkbookError::Db(monumentum_db::error::DbError::table_not_found(sheet).to_string())
+            WorkbookError::Db(monumentum_db::error::DbError::table_not_found(sheet))
         })?;
 
         for row in table.rows() {
             if row.values().iter().any(Value::is_formula) {
                 return Err(WorkbookError::Formula(
-                    "cannot sort sheet containing formulas".to_string(),
+                    monumentum_query::formula::FormulaError::Eval(
+                        "cannot sort sheet containing formulas".to_string(),
+                    ),
                 ));
             }
         }
@@ -82,7 +84,7 @@ impl<S: StorageEngine> Workbook<S> {
         });
 
         let table_mut = self.catalog.get_table_mut(sheet).ok_or_else(|| {
-            WorkbookError::Db(monumentum_db::error::DbError::table_not_found(sheet).to_string())
+            WorkbookError::Db(monumentum_db::error::DbError::table_not_found(sheet))
         })?;
         table_mut.replace_rows(rows)?;
         Ok(())
@@ -95,7 +97,7 @@ impl<S: StorageEngine> Workbook<S> {
         value: &Value,
     ) -> Result<Vec<Row>, WorkbookError> {
         let table = self.catalog.get_table(sheet).ok_or_else(|| {
-            WorkbookError::Db(monumentum_db::error::DbError::table_not_found(sheet).to_string())
+            WorkbookError::Db(monumentum_db::error::DbError::table_not_found(sheet))
         })?;
 
         let column_count = table.schema().columns().len();
@@ -122,7 +124,7 @@ impl<S: StorageEngine> Workbook<S> {
         col_idx: usize,
     ) -> Result<Vec<Value>, WorkbookError> {
         let table = self.catalog.get_table(sheet).ok_or_else(|| {
-            WorkbookError::Db(monumentum_db::error::DbError::table_not_found(sheet).to_string())
+            WorkbookError::Db(monumentum_db::error::DbError::table_not_found(sheet))
         })?;
 
         let column_count = table.schema().columns().len();
