@@ -103,6 +103,12 @@ jobs:
       - name: Create default deny.toml
         run: |
           cat > deny.toml << 'EOF'
+          [advisories]
+          vulnerability = "deny"
+          unmaintained = "warn"
+          yanked = "deny"
+          notice = "warn"
+
           [licenses]
           allow = ["MIT", "Apache-2.0", "BSD-3-Clause", "ISC", "Zlib", "Unlicense", "CC0-1.0"]
           copyleft = "deny"
@@ -110,14 +116,6 @@ jobs:
           [bans]
           multiple-versions = "warn"
           wildcards = "deny"
-          highlight = "all"
-
-          [advisories]
-          vulnerability = "deny"
-          unmaintained = "warn"
-          yanked = "deny"
-          notice = "warn"
-          ignore = []
           EOF
       - uses: EmbarkStudios/cargo-deny-action@v2
         with:
