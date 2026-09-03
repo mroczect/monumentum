@@ -1,3 +1,4 @@
+use crate::ColumnDef;
 use crate::core::index::HashIndex;
 use crate::core::index::IndexKey;
 use crate::core::row::Row;
@@ -289,5 +290,9 @@ impl Table {
 
     pub fn set_read_only(&mut self, value: bool) {
         self.read_only = value;
+    }
+
+    pub fn get_column_by_name(&self, name: &str) -> Option<&ColumnDef> {
+        self.schema.get_column(name)
     }
 }
