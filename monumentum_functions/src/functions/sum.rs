@@ -4,8 +4,8 @@ use monumentum_query::formula::FormulaError;
 
 pub(super) fn evaluate(args: &[Value]) -> Result<Value, FormulaError> {
     if args.is_empty() {
-        return Err(FormulaError::Eval(
-            "SUM requires at least one argument".to_string(),
+        return Err(FormulaError::WrongArity(
+            "SUM expects at least one argument".to_string(),
         ));
     }
 
