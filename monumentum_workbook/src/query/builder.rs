@@ -2,6 +2,7 @@ use crate::Workbook;
 use crate::query::{FromRow, Query, QueryAs};
 use core::marker::PhantomData;
 use monumentum_db::core::row::Row;
+use monumentum_db::core::table::Table;
 use monumentum_db::store::storage::StorageEngine;
 
 type Filter<'a> = Box<dyn Fn(&Row) -> bool + 'a>;
@@ -82,5 +83,29 @@ impl<'a, S: StorageEngine> QueryBuilder<'a, S> {
             inner: self.build(),
             _output: PhantomData,
         }
+    }
+
+    #[must_use]
+    pub fn select_by_names(mut self, columns: &[&str]) -> Self {
+        if let Ok(schema) = self.workbook.sheet(&self.sheet).map(Table::schema) {
+            let indices: Vec<usize> = columns
+                .iter()
+                .filter_map(|name| schema.column_index(name))
+                .collect();
+            self.columns = Some(indices);
+        } else {
+            self.columns = Some(Vec::new());
+        }
+        self
+    }
+
+    #[must_use]
+    pub fn order_by_name(mut self, col_name: &str, ascending: bool) -> Self {
+        if let Ok(schema) = self.workbook.sheet(&self.sheet).map(Table::schema)
+            && let Some(idx) = schema.column_index(col_name)
+        {
+            self.sort_by = Some((idx, ascending));
+        }
+        self
     }
 }
