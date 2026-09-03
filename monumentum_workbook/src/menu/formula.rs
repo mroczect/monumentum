@@ -21,16 +21,7 @@ impl<S: StorageEngine> Workbook<S> {
             WorkbookError::Db(monumentum_db::error::DbError::table_not_found(sheet).to_string())
         })?;
 
-        let mut rows = table.rows().to_vec();
-        let row = rows
-            .get_mut(row_idx)
-            .ok_or(WorkbookError::InvalidReference)?;
-        let cell = row
-            .values_mut()
-            .get_mut(col_idx)
-            .ok_or(WorkbookError::InvalidReference)?;
-        *cell = Value::Formula(formula.to_string());
-        table.replace_rows(rows)?;
+        table.set_cell(row_idx, col_idx, Value::Formula(formula.to_string()))?;
         Ok(())
     }
 

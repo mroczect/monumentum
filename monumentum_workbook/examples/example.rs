@@ -27,7 +27,7 @@ fn custom_double(args: &[Value]) -> Result<Value, FormulaError> {
 
 #[allow(clippy::too_many_lines)]
 fn main() -> Result<(), Box<dyn core::error::Error>> {
-	let path = std::path::PathBuf::from("demo.monumentum");
+    let path = std::path::PathBuf::from("demo.monumentum");
 
     println!("=== 1. Membuat workbook baru ===");
     let mut wb = Workbook::<FileStorage>::create_new(&path)?;

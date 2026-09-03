@@ -51,21 +51,34 @@ impl<S: StorageEngine> Workbook<S> {
         new_value: &Value,
     ) -> Result<usize, WorkbookError> {
         self.ensure_writable(sheet)?;
-        let table = self.catalog.get_table_mut(sheet).ok_or_else(|| {
+
+        let positions = {
+            let table = self.catalog.get_table(sheet).ok_or_else(|| {
+                WorkbookError::Db(monumentum_db::error::DbError::table_not_found(sheet).to_string())
+            })?;
+            let mut pos = Vec::new();
+            let col_count = table.schema().columns().len();
+
+            for (row_idx, row) in table.rows().iter().enumerate() {
+                for col_idx in 0..col_count {
+                    if row.get(col_idx) == Some(old_value) {
+                        pos.push((row_idx, col_idx));
+                    }
+                }
+            }
+            pos
+        };
+
+        let table_mut = self.catalog.get_table_mut(sheet).ok_or_else(|| {
             WorkbookError::Db(monumentum_db::error::DbError::table_not_found(sheet).to_string())
         })?;
 
-        let mut rows = table.rows().to_vec();
         let mut count: usize = 0;
-        for row in &mut rows {
-            for cell in row.values_mut() {
-                if cell == old_value {
-                    *cell = new_value.clone();
-                    count = count.saturating_add(1);
-                }
-            }
+        for (row_idx, col_idx) in positions {
+            table_mut.set_cell(row_idx, col_idx, new_value.clone())?;
+            count = count.saturating_add(1);
         }
-        table.replace_rows(rows)?;
+
         Ok(count)
     }
 

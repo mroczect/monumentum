@@ -71,4 +71,22 @@ impl Catalog {
     pub fn is_empty(&self) -> bool {
         self.tables.is_empty()
     }
+
+    pub fn rename_table(&mut self, old_name: &str, new_name: &str) -> Result<(), DbError> {
+        if old_name == new_name {
+            return Ok(());
+        }
+        if self.tables.contains_key(new_name) {
+            return Err(DbError::invalid_operation(format!(
+                "table '{new_name}' already exists"
+            )));
+        }
+        let mut table = self
+            .tables
+            .remove(old_name)
+            .ok_or_else(|| DbError::table_not_found(old_name))?;
+        table.rename_schema(new_name)?;
+        self.tables.insert(new_name.to_string(), table);
+        Ok(())
+    }
 }

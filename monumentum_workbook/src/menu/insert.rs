@@ -43,6 +43,11 @@ impl<S: StorageEngine> Workbook<S> {
         col_def: &ColumnDef,
     ) -> Result<(), WorkbookError> {
         self.ensure_writable(sheet)?;
+
+        if !col_def.is_nullable() && col_def.default_value().is_none() {
+            return Err(WorkbookError::InvalidArgument);
+        }
+
         let table = self.catalog.get_table(sheet).ok_or_else(|| {
             WorkbookError::Db(monumentum_db::error::DbError::table_not_found(sheet).to_string())
         })?;
@@ -57,6 +62,7 @@ impl<S: StorageEngine> Workbook<S> {
         let new_schema = TableSchema::try_new(sheet, new_columns)?;
 
         let default_value = col_def.default_value().cloned().unwrap_or(Value::Null);
+
         let mut new_rows = Vec::with_capacity(table.rows().len());
         for old_row in table.rows() {
             let mut values = old_row.values().to_vec();
