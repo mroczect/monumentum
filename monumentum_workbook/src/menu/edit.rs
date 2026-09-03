@@ -1,4 +1,5 @@
 use crate::{Workbook, WorkbookError};
+use monumentum_db::core::row::Row;
 use monumentum_db::core::value::Value;
 use monumentum_db::store::storage::StorageEngine;
 
@@ -99,5 +100,37 @@ impl<S: StorageEngine> Workbook<S> {
             }
         }
         Ok(matches)
+    }
+
+    pub fn get_cell_by_name(
+        &self,
+        sheet: &str,
+        row_idx: usize,
+        col_name: &str,
+    ) -> Result<Value, WorkbookError> {
+        let table = self.sheet(sheet)?;
+        let col_idx = table.schema().column_index(col_name).ok_or_else(|| {
+            WorkbookError::Db(monumentum_db::error::DbError::column_not_found(col_name))
+        })?;
+        self.get_cell_value(sheet, row_idx, col_idx)
+    }
+
+    pub fn set_cell_by_name(
+        &mut self,
+        sheet: &str,
+        row_idx: usize,
+        col_name: &str,
+        value: Value,
+    ) -> Result<(), WorkbookError> {
+        let table = self.sheet(sheet)?;
+        let col_idx = table.schema().column_index(col_name).ok_or_else(|| {
+            WorkbookError::Db(monumentum_db::error::DbError::column_not_found(col_name))
+        })?;
+        self.set_cell(sheet, row_idx, col_idx, value)
+    }
+
+    pub fn get_row(&self, sheet: &str, row_idx: usize) -> Result<&Row, WorkbookError> {
+        let table = self.sheet(sheet)?;
+        table.get(row_idx).ok_or(WorkbookError::InvalidReference)
     }
 }
