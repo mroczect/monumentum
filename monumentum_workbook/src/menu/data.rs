@@ -14,7 +14,7 @@ fn compare_values(a: &Value, b: &Value) -> Ordering {
         Blob(_) => 4,
         Boolean(_) => 5,
         Formula(_) => 6,
-        _ => 7, 
+        _ => 7,
     };
     let ra = rank(a);
     let rb = rank(b);
