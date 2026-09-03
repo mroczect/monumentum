@@ -8,6 +8,7 @@ pub enum DataType {
     Float,
     Text,
     Blob,
+    Boolean,
 }
 
 impl DataType {
@@ -19,6 +20,7 @@ impl DataType {
             Self::Float => "FLOAT",
             Self::Text => "TEXT",
             Self::Blob => "BLOB",
+            Self::Boolean => "BOOLEAN",
         }
     }
 }
@@ -196,6 +198,7 @@ impl ColumnDef {
             DataType::Float => value.is_float(),
             DataType::Text => value.is_text(),
             DataType::Blob => value.is_blob(),
+            DataType::Boolean => value.is_boolean(),
         };
 
         if !type_ok {
@@ -298,7 +301,6 @@ pub trait ColumnIndex<T: ?Sized> {
     fn index(&self, container: &T) -> Result<usize, crate::error::DbError>;
 }
 
-// Implementasi untuk indeks numerik pada Row
 impl ColumnIndex<crate::core::row::Row> for usize {
     fn index(&self, row: &crate::core::row::Row) -> Result<usize, crate::error::DbError> {
         let len = row.len();
@@ -312,7 +314,6 @@ impl ColumnIndex<crate::core::row::Row> for usize {
     }
 }
 
-// Implementasi untuk indeks numerik pada TableSchema
 impl ColumnIndex<crate::core::schema::table_schema::TableSchema> for usize {
     fn index(
         &self,
@@ -329,7 +330,6 @@ impl ColumnIndex<crate::core::schema::table_schema::TableSchema> for usize {
     }
 }
 
-// Implementasi untuk referensi nama kolom pada TableSchema
 impl ColumnIndex<crate::core::schema::table_schema::TableSchema> for &str {
     fn index(
         &self,
@@ -341,7 +341,6 @@ impl ColumnIndex<crate::core::schema::table_schema::TableSchema> for &str {
     }
 }
 
-// Implementasi untuk referensi nama kolom pada Table
 impl ColumnIndex<crate::core::table::Table> for &str {
     fn index(&self, table: &crate::core::table::Table) -> Result<usize, crate::error::DbError> {
         table
