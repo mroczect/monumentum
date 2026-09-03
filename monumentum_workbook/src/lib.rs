@@ -7,7 +7,6 @@ use monumentum_query::formula::{FunctionImpl, FunctionRegistry};
 mod error;
 pub mod menu;
 pub mod transaction;
-use monumentum_db::core::schema::table_schema::TableSchema;
 
 pub use error::WorkbookError;
 
@@ -70,28 +69,15 @@ impl<S: StorageEngine> Workbook<S> {
         values: Vec<Value>,
     ) -> Result<(), WorkbookError> {
         self.ensure_writable(sheet)?;
-        let table = self.catalog.get_table(sheet).ok_or_else(|| {
+        let table = self.catalog.get_table_mut(sheet).ok_or_else(|| {
             WorkbookError::Db(monumentum_db::error::DbError::table_not_found(sheet).to_string())
         })?;
 
-        let old_schema = table.schema();
-        let col_idx = old_schema.column_index(col_name).ok_or_else(|| {
+        let col_idx = table.schema().column_index(col_name).ok_or_else(|| {
             WorkbookError::Db(monumentum_db::error::DbError::column_not_found(col_name).to_string())
         })?;
 
-        let mut new_columns = old_schema.columns().to_vec();
-        let col_def = new_columns.get_mut(col_idx).ok_or_else(|| {
-            WorkbookError::Db(monumentum_db::error::DbError::column_not_found(col_name).to_string())
-        })?;
-        col_def.set_allowed_values(Some(values));
-
-        let new_schema = TableSchema::try_new(sheet, new_columns)?;
-        let mut new_table = Table::new(new_schema);
-        for row in table.rows() {
-            new_table.insert(row.clone())?;
-        }
-
-        self.catalog.replace_table(sheet, new_table)?;
+        table.set_column_allowed_values(col_idx, Some(values))?;
         Ok(())
     }
 
