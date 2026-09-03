@@ -12,8 +12,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  format:
-    name: Format
+  strict-checks:
+    name: Strict Lint & Test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
