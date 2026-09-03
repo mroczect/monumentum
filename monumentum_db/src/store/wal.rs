@@ -21,9 +21,10 @@ impl Wal {
     }
 
     pub fn append(&mut self, payload: &[u8]) -> Result<(), DbError> {
-        let file = self.file.as_mut().ok_or_else(|| {
-            DbError::invalid_operation("WAL is already unlocked")
-        })?;
+        let file = self
+            .file
+            .as_mut()
+            .ok_or_else(|| DbError::invalid_operation("WAL is already unlocked"))?;
         append_record(file, payload)?;
         sync_file(file)?;
         Ok(())
@@ -39,16 +40,18 @@ impl Wal {
     }
 
     pub fn read_all(&mut self) -> Result<Vec<Vec<u8>>, DbError> {
-        let file = self.file.as_mut().ok_or_else(|| {
-            DbError::invalid_operation("WAL is already unlocked")
-        })?;
+        let file = self
+            .file
+            .as_mut()
+            .ok_or_else(|| DbError::invalid_operation("WAL is already unlocked"))?;
         read_records(file)
     }
 
     pub fn truncate(&mut self) -> Result<(), DbError> {
-        let file = self.file.as_mut().ok_or_else(|| {
-            DbError::invalid_operation("WAL is already unlocked")
-        })?;
+        let file = self
+            .file
+            .as_mut()
+            .ok_or_else(|| DbError::invalid_operation("WAL is already unlocked"))?;
         file.set_len(0)?;
         file.sync_all()?;
         file.seek(SeekFrom::Start(0))?;
