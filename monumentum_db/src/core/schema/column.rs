@@ -263,3 +263,90 @@ fn evaluate_check_value(value: &Value, check: &CheckConstraint) -> bool {
         _ => false,
     }
 }
+
+pub trait Column {
+    fn name(&self) -> &str;
+    fn data_type(&self) -> &DataType;
+    fn is_nullable(&self) -> bool;
+    fn is_primary_key(&self) -> bool;
+    fn is_unique(&self) -> bool;
+}
+
+impl Column for ColumnDef {
+    fn name(&self) -> &str {
+        self.name()
+    }
+
+    fn data_type(&self) -> &DataType {
+        self.data_type()
+    }
+
+    fn is_nullable(&self) -> bool {
+        self.is_nullable()
+    }
+
+    fn is_primary_key(&self) -> bool {
+        self.is_primary_key()
+    }
+
+    fn is_unique(&self) -> bool {
+        self.is_unique()
+    }
+}
+
+pub trait ColumnIndex<T: ?Sized> {
+    fn index(&self, container: &T) -> Result<usize, crate::error::DbError>;
+}
+
+// Implementasi untuk indeks numerik pada Row
+impl ColumnIndex<crate::core::row::Row> for usize {
+    fn index(&self, row: &crate::core::row::Row) -> Result<usize, crate::error::DbError> {
+        let len = row.len();
+        if *self >= len {
+            return Err(crate::error::DbError::invalid_operation(format!(
+                "column index {} out of bounds (len {})",
+                self, len
+            )));
+        }
+        Ok(*self)
+    }
+}
+
+// Implementasi untuk indeks numerik pada TableSchema
+impl ColumnIndex<crate::core::schema::table_schema::TableSchema> for usize {
+    fn index(
+        &self,
+        schema: &crate::core::schema::table_schema::TableSchema,
+    ) -> Result<usize, crate::error::DbError> {
+        let len = schema.columns().len();
+        if *self >= len {
+            return Err(crate::error::DbError::invalid_operation(format!(
+                "column index {} out of bounds (len {})",
+                self, len
+            )));
+        }
+        Ok(*self)
+    }
+}
+
+// Implementasi untuk referensi nama kolom pada TableSchema
+impl ColumnIndex<crate::core::schema::table_schema::TableSchema> for &str {
+    fn index(
+        &self,
+        schema: &crate::core::schema::table_schema::TableSchema,
+    ) -> Result<usize, crate::error::DbError> {
+        schema
+            .column_index(self)
+            .ok_or_else(|| crate::error::DbError::column_not_found(*self))
+    }
+}
+
+// Implementasi untuk referensi nama kolom pada Table
+impl ColumnIndex<crate::core::table::Table> for &str {
+    fn index(&self, table: &crate::core::table::Table) -> Result<usize, crate::error::DbError> {
+        table
+            .schema()
+            .column_index(self)
+            .ok_or_else(|| crate::error::DbError::column_not_found(*self))
+    }
+}
