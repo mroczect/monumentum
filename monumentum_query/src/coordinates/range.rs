@@ -28,7 +28,7 @@ impl CellRange {
 
     pub fn new_unchecked(start: CellRef, end: CellRef) -> Self {
         debug_assert!(start.is_valid() && end.is_valid());
-        let (start, end) = if start.row > end.row || (start.row == end.row && start.col > end.col) {
+        let (start, end) = if start.row > end.row || start.col > end.col {
             (end, start)
         } else {
             (start, end)
@@ -46,6 +46,9 @@ impl CellRange {
     }
 
     pub fn contains(&self, cell: &CellRef) -> bool {
+        if cell.sheet != self.start.sheet {
+            return false;
+        }
         debug_assert!(self.start.row <= self.end.row);
         debug_assert!(self.start.col <= self.end.col || self.start.row < self.end.row);
         cell.row >= self.start.row

@@ -139,11 +139,31 @@ pub fn tokenize(input: &str) -> Result<Vec<Token>, FormulaError> {
                 }
             }
             '"' => {
-                chars.next();
+                chars.next(); 
                 let mut s = String::new();
                 loop {
                     match chars.next() {
                         Some('"') => break,
+                        Some('\\') => {
+                            match chars.next() {
+                                Some('"') => s.push('"'),
+                                Some('\\') => s.push('\\'),
+                                Some('n') => s.push('\n'),
+                                Some('t') => s.push('\t'),
+                                Some('r') => s.push('\r'),
+                                Some(other) => {
+                                    return Err(FormulaError::Parse(format!(
+                                        "invalid escape sequence: \\{}",
+                                        other
+                                    )));
+                                }
+                                None => {
+                                    return Err(FormulaError::Parse(
+                                        "unterminated string literal".to_string(),
+                                    ));
+                                }
+                            }
+                        }
                         Some(c) => s.push(c),
                         None => {
                             return Err(FormulaError::Parse(
@@ -208,11 +228,14 @@ pub fn tokenize(input: &str) -> Result<Vec<Token>, FormulaError> {
                         break;
                     }
                 }
-                match ident.as_str() {
-                    "true" => tokens.push(Token::Boolean(true)),
-                    "false" => tokens.push(Token::Boolean(false)),
-                    "null" => tokens.push(Token::Null),
-                    _ => tokens.push(Token::Identifier(ident)),
+                if ident.eq_ignore_ascii_case("true") {
+                    tokens.push(Token::Boolean(true));
+                } else if ident.eq_ignore_ascii_case("false") {
+                    tokens.push(Token::Boolean(false));
+                } else if ident.eq_ignore_ascii_case("null") {
+                    tokens.push(Token::Null);
+                } else {
+                    tokens.push(Token::Identifier(ident));
                 }
             }
             _ => {
