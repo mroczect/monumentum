@@ -6,14 +6,13 @@ use monumentum_db::core::row::Row;
 use monumentum_db::store::storage::StorageEngine;
 
 #[allow(missing_debug_implementations)]
-pub struct QueryAs<'a, S: StorageEngine, O, F> {
-    pub(crate) inner: Query<'a, S, F>,
+pub struct QueryAs<'a, S: StorageEngine, O> {
+    pub(crate) inner: Query<'a, S>,
     pub(crate) _output: PhantomData<O>,
 }
 
-impl<'a, S: StorageEngine, O, F> QueryAs<'a, S, O, F>
+impl<'a, S: StorageEngine, O> QueryAs<'a, S, O>
 where
-    F: Fn(&Row) -> bool,
     O: FromRow,
 {
     pub fn new(workbook: &'a Workbook<S>, sheet: impl Into<String>) -> Self {
@@ -30,7 +29,7 @@ where
     }
 
     #[must_use]
-    pub fn filter(mut self, predicate: F) -> Self {
+    pub fn filter(mut self, predicate: impl Fn(&Row) -> bool + 'a) -> Self {
         self.inner = self.inner.filter(predicate);
         self
     }
