@@ -181,7 +181,7 @@ jobs:
             monumentum_db
             monumentum_query
       - uses: taiki-e/install-action@cargo-hack
-      - run: cargo hack check --workspace --each-feature --feature-powerset --all-targets
+      - run: cargo hack check --workspace --feature-powerset --all-targets
 
   docs:
     name: Documentation
