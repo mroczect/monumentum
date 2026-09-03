@@ -203,8 +203,7 @@ impl Table {
             self.rows[row_idx].values_mut()[col_idx] = value;
 
             if !self.rows[row_idx].values()[col_idx].is_null()
-                && let Some(new_key) =
-                    IndexKey::from_value(&self.rows[row_idx].values()[col_idx])
+                && let Some(new_key) = IndexKey::from_value(&self.rows[row_idx].values()[col_idx])
                 && let Some(index) = &mut self.unique_indexes[col_idx]
             {
                 index.insert(new_key, row_idx);

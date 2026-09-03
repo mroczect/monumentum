@@ -83,8 +83,8 @@ pub fn encode_table_schema(schema: &TableSchema) -> Result<Vec<u8>, DbError> {
 
 pub fn encode_row(row: &Row) -> Result<Vec<u8>, DbError> {
     let mut buf = Vec::new();
-    let value_count = u32::try_from(row.len())
-        .map_err(|_| DbError::invalid_operation("row too large"))?;
+    let value_count =
+        u32::try_from(row.len()).map_err(|_| DbError::invalid_operation("row too large"))?;
     write_u32(&mut buf, value_count);
     for value in row.values() {
         let value_bytes = encode_value(value);
@@ -100,8 +100,8 @@ pub fn encode_table(table: &Table) -> Result<Vec<u8>, DbError> {
 
     write_u8(&mut buf, table.is_read_only() as u8);
 
-    let row_count = u32::try_from(table.len())
-        .map_err(|_| DbError::invalid_operation("too many rows"))?;
+    let row_count =
+        u32::try_from(table.len()).map_err(|_| DbError::invalid_operation("too many rows"))?;
     write_u32(&mut buf, row_count);
     for row in table.rows() {
         let row_bytes = encode_row(row)?;
@@ -113,8 +113,8 @@ pub fn encode_table(table: &Table) -> Result<Vec<u8>, DbError> {
 pub fn encode_catalog(catalog: &Catalog) -> Result<Vec<u8>, DbError> {
     let mut buf = Vec::new();
     write_u32(&mut buf, FORMAT_VERSION);
-    let table_count = u32::try_from(catalog.len())
-        .map_err(|_| DbError::invalid_operation("too many tables"))?;
+    let table_count =
+        u32::try_from(catalog.len()).map_err(|_| DbError::invalid_operation("too many tables"))?;
     write_u32(&mut buf, table_count);
     for (name, table) in catalog.tables() {
         write_bytes(&mut buf, name.as_bytes());

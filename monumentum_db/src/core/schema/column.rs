@@ -3,7 +3,7 @@ use core::fmt;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DataType {
-        Null,
+    Null,
     Integer,
     Float,
     Text,
@@ -194,7 +194,7 @@ impl ColumnDef {
         }
 
         let type_ok = match self.data_type {
-            DataType::Null => false, 
+            DataType::Null => false,
             DataType::Integer => value.is_integer(),
             DataType::Float => value.is_float(),
             DataType::Text => value.is_text(),

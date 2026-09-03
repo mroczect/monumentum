@@ -4,7 +4,6 @@ use std::fs;
 
 use crate::common::TempPath;
 
-
 #[test]
 fn open_creates_new_file() -> Result<(), DbError> {
     let temp = TempPath::new_file("monumentum_wal_test");
@@ -166,6 +165,9 @@ fn lock_prevents_second_open_until_first_dropped() -> Result<(), DbError> {
     drop(wal1);
 
     let second_succeeded = handle.join().expect("thread panicked");
-    assert!(second_succeeded, "second open should succeed after lock release");
+    assert!(
+        second_succeeded,
+        "second open should succeed after lock release"
+    );
     Ok(())
 }

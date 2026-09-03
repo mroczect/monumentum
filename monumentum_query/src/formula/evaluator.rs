@@ -36,18 +36,18 @@ pub fn evaluate(
             let mut arg_values = Vec::new();
             for arg in args {
                 match arg {
-                Expr::Range(range) => {
-                    let rows = u64::from(range.end.row - range.start.row + 1);
-                    let cols = u64::from(range.end.col - range.start.col + 1);
-                    let cell_count = rows * cols;
-                    if cell_count > MAX_RANGE_CELLS as u64 {
-                        return Err(FormulaError::Eval("range too large".to_string()));
+                    Expr::Range(range) => {
+                        let rows = u64::from(range.end.row - range.start.row + 1);
+                        let cols = u64::from(range.end.col - range.start.col + 1);
+                        let cell_count = rows * cols;
+                        if cell_count > MAX_RANGE_CELLS as u64 {
+                            return Err(FormulaError::Eval("range too large".to_string()));
+                        }
+                        for cell in range.iter() {
+                            let v = ctx.get_cell_value(&cell)?;
+                            arg_values.push(v);
+                        }
                     }
-                    for cell in range.iter() {
-                        let v = ctx.get_cell_value(&cell)?;
-                        arg_values.push(v);
-                    }
-                }
                     _ => {
                         let v = evaluate(arg, ctx, registry)?;
                         arg_values.push(v);
@@ -286,28 +286,28 @@ fn mod_values(l: Value, r: Value) -> Result<Value, FormulaError> {
 
 fn pow_values(l: Value, r: Value) -> Result<Value, FormulaError> {
     match (l, r) {
-    (Value::Integer(a), Value::Integer(b)) => {
-        if b.as_i64() >= 0 {
-            let base = a.as_i64();
-            let exp_i64 = b.as_i64();
-            let exp = u32::try_from(exp_i64)
-                .map_err(|_| FormulaError::Eval("exponent too large".to_string()))?;
-            let result = base
-                .checked_pow(exp)
-                .ok_or_else(|| FormulaError::Eval("integer overflow".to_string()))?;
-            Ok(Value::Integer(Integer::new(result)))
-        } else {
-            let base = a.as_i64() as f64;
-            let exp = b.as_i64() as f64;
-            let result = base.powf(exp);
-            if !result.is_finite() {
-                return Err(FormulaError::Eval("float result is not finite".to_string()));
+        (Value::Integer(a), Value::Integer(b)) => {
+            if b.as_i64() >= 0 {
+                let base = a.as_i64();
+                let exp_i64 = b.as_i64();
+                let exp = u32::try_from(exp_i64)
+                    .map_err(|_| FormulaError::Eval("exponent too large".to_string()))?;
+                let result = base
+                    .checked_pow(exp)
+                    .ok_or_else(|| FormulaError::Eval("integer overflow".to_string()))?;
+                Ok(Value::Integer(Integer::new(result)))
+            } else {
+                let base = a.as_i64() as f64;
+                let exp = b.as_i64() as f64;
+                let result = base.powf(exp);
+                if !result.is_finite() {
+                    return Err(FormulaError::Eval("float result is not finite".to_string()));
+                }
+                Float::try_new(result)
+                    .map(Value::Float)
+                    .map_err(|e| FormulaError::Eval(e.to_string()))
             }
-            Float::try_new(result)
-                .map(Value::Float)
-                .map_err(|e| FormulaError::Eval(e.to_string()))
         }
-    }
         (Value::Float(a), Value::Float(b)) => {
             let result = a.as_f64().powf(b.as_f64());
             if !result.is_finite() {

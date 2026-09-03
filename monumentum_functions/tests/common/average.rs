@@ -25,7 +25,7 @@ fn average_single_float() {
 fn average_empty_errors() {
     assert!(matches!(
         call_function("AVERAGE", &[]),
-        Err(FormulaError::Eval(_))
+        Err(FormulaError::WrongArity(_))
     ));
 }
 
