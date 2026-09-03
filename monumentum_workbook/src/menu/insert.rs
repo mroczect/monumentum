@@ -15,14 +15,13 @@ impl<S: StorageEngine> Workbook<S> {
     ) -> Result<(), WorkbookError> {
         self.ensure_writable(sheet)?;
         let table = self.catalog.get_table_mut(sheet).ok_or_else(|| {
-            WorkbookError::Db(monumentum_db::error::DbError::table_not_found(sheet).to_string())
+            WorkbookError::Db(monumentum_db::error::DbError::table_not_found(sheet))
         })?;
 
         let schema_columns_count = table.schema().columns().len();
         if values.len() != schema_columns_count {
             return Err(WorkbookError::Db(
-                monumentum_db::error::DbError::invalid_operation("wrong number of values")
-                    .to_string(),
+                monumentum_db::error::DbError::invalid_operation("wrong number of values"),
             ));
         }
 
@@ -49,7 +48,7 @@ impl<S: StorageEngine> Workbook<S> {
         }
 
         let table = self.catalog.get_table(sheet).ok_or_else(|| {
-            WorkbookError::Db(monumentum_db::error::DbError::table_not_found(sheet).to_string())
+            WorkbookError::Db(monumentum_db::error::DbError::table_not_found(sheet))
         })?;
 
         let columns = table.schema().columns().to_vec();
@@ -82,7 +81,7 @@ impl<S: StorageEngine> Workbook<S> {
     pub fn delete_column(&mut self, sheet: &str, index: usize) -> Result<(), WorkbookError> {
         self.ensure_writable(sheet)?;
         let table = self.catalog.get_table(sheet).ok_or_else(|| {
-            WorkbookError::Db(monumentum_db::error::DbError::table_not_found(sheet).to_string())
+            WorkbookError::Db(monumentum_db::error::DbError::table_not_found(sheet))
         })?;
 
         let columns = table.schema().columns().to_vec();
@@ -91,8 +90,7 @@ impl<S: StorageEngine> Workbook<S> {
         }
         if columns.len() <= 1 {
             return Err(WorkbookError::Db(
-                monumentum_db::error::DbError::invalid_operation("cannot delete the last column")
-                    .to_string(),
+                monumentum_db::error::DbError::invalid_operation("cannot delete the last column"),
             ));
         }
 
