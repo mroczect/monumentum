@@ -2,8 +2,11 @@ use crate::{Workbook, WorkbookError};
 use core::cmp::Ordering;
 use core::marker::PhantomData;
 use monumentum_db::core::row::Row;
+use monumentum_db::core::table::Table;
 use monumentum_db::core::value::Value;
 use monumentum_db::store::storage::StorageEngine;
+use monumentum_db::types::{Float, Integer};
+use monumentum_query::formula::FormulaError;
 
 type Filter<'a> = Box<dyn Fn(&Row) -> bool + 'a>;
 
@@ -38,8 +41,39 @@ impl<'a, S: StorageEngine> Query<'a, S> {
     }
 
     #[must_use]
+    pub fn select_by_names(mut self, columns: &[&str]) -> Self {
+        if let Ok(schema) = self.workbook.sheet(&self.sheet).map(Table::schema) {
+            let indices: Vec<usize> = columns
+                .iter()
+                .filter_map(|name| schema.column_index(name))
+                .collect();
+            self.columns = Some(indices);
+        } else {
+            self.columns = Some(Vec::new());
+        }
+        self
+    }
+
+    #[must_use]
     pub fn filter(mut self, predicate: impl Fn(&Row) -> bool + 'a) -> Self {
         self.filter = Some(Box::new(predicate));
+        self
+    }
+
+    #[must_use]
+    pub fn filter_by_column<F>(mut self, col_name: &str, predicate: F) -> Self
+    where
+        F: Fn(&Value) -> bool + 'a,
+    {
+        if let Ok(schema) = self.workbook.sheet(&self.sheet).map(Table::schema)
+            && let Some(idx) = schema.column_index(col_name)
+        {
+            let existing = self.filter.take();
+            let new_filter = move |row: &Row| {
+                row.get(idx).is_some_and(&predicate) && existing.as_ref().is_none_or(|f| f(row))
+            };
+            self.filter = Some(Box::new(new_filter));
+        }
         self
     }
 
@@ -50,9 +84,146 @@ impl<'a, S: StorageEngine> Query<'a, S> {
     }
 
     #[must_use]
+    pub fn order_by_name(mut self, col_name: &str, ascending: bool) -> Self {
+        if let Ok(schema) = self.workbook.sheet(&self.sheet).map(Table::schema)
+            && let Some(idx) = schema.column_index(col_name)
+        {
+            self.sort_by = Some((idx, ascending));
+        }
+        self
+    }
+
+    #[must_use]
     pub const fn limit(mut self, n: usize) -> Self {
         self.limit = Some(n);
         self
+    }
+
+    pub fn count(self) -> Result<usize, WorkbookError> {
+        self.fetch_all().map(|rows| rows.len())
+    }
+
+    pub fn sum(self, col: usize) -> Result<Value, WorkbookError> {
+        let rows = self.fetch_all()?;
+        let mut sum_int: i64 = 0;
+        let mut sum_float: f64 = 0.0;
+        let mut has_float = false;
+
+        for row in &rows {
+            let val = row.get(col).ok_or(WorkbookError::InvalidReference)?;
+            match val {
+                Value::Integer(i) => {
+                    if has_float {
+                        #[allow(clippy::cast_precision_loss)]
+                        {
+                            sum_float += i.as_i64() as f64;
+                        }
+                    } else {
+                        sum_int = sum_int.checked_add(i.as_i64()).ok_or_else(|| {
+                            WorkbookError::Formula(FormulaError::Eval(
+                                "integer overflow".to_string(),
+                            ))
+                        })?;
+                    }
+                }
+                Value::Float(f) => {
+                    if !has_float {
+                        has_float = true;
+                        #[allow(clippy::cast_precision_loss)]
+                        {
+                            sum_float = sum_int as f64;
+                        }
+                    }
+                    sum_float += f.as_f64();
+                    if !sum_float.is_finite() {
+                        return Err(WorkbookError::Formula(FormulaError::Eval(
+                            "float overflow".to_string(),
+                        )));
+                    }
+                }
+                Value::Null
+                | Value::Text(_)
+                | Value::Blob(_)
+                | Value::Boolean(_)
+                | Value::Formula(_)
+                | _ => {
+                    return Err(WorkbookError::Formula(FormulaError::TypeMismatch(
+                        "SUM expects numeric values".to_string(),
+                    )));
+                }
+            }
+        }
+
+        if has_float {
+            Float::try_new(sum_float)
+                .map(Value::Float)
+                .map_err(|e| WorkbookError::Formula(FormulaError::Eval(e.to_string())))
+        } else {
+            Ok(Value::Integer(Integer::new(sum_int)))
+        }
+    }
+
+    pub fn avg(self, col: usize) -> Result<Value, WorkbookError> {
+        let rows = self.fetch_all()?;
+        if rows.is_empty() {
+            return Err(WorkbookError::Formula(FormulaError::Eval(
+                "AVG of empty set".to_string(),
+            )));
+        }
+        let mut sum = 0.0_f64;
+        let mut count: usize = 0;
+        for row in &rows {
+            let val = row.get(col).ok_or(WorkbookError::InvalidReference)?;
+            match val {
+                Value::Integer(i) => {
+                    #[allow(clippy::cast_precision_loss)]
+                    {
+                        sum += i.as_i64() as f64;
+                    }
+                }
+                Value::Float(f) => sum += f.as_f64(),
+                Value::Null
+                | Value::Text(_)
+                | Value::Blob(_)
+                | Value::Boolean(_)
+                | Value::Formula(_)
+                | _ => {
+                    return Err(WorkbookError::Formula(FormulaError::TypeMismatch(
+                        "AVG expects numeric values".to_string(),
+                    )));
+                }
+            }
+            count = count.saturating_add(1);
+        }
+        #[allow(clippy::cast_precision_loss)]
+        let avg = sum / count as f64;
+        Float::try_new(avg)
+            .map(Value::Float)
+            .map_err(|e| WorkbookError::Formula(FormulaError::Eval(e.to_string())))
+    }
+
+    pub fn min(self, col: usize) -> Result<Value, WorkbookError> {
+        let rows = self.fetch_all()?;
+        let mut min_val: Option<Value> = None;
+        for row in &rows {
+            let val = row.get(col).ok_or(WorkbookError::InvalidReference)?;
+            if min_val.as_ref().is_none_or(|m| val < m) {
+                min_val = Some(val.clone());
+            }
+        }
+        min_val.ok_or(WorkbookError::Null)
+    }
+
+    pub fn max(self, col: usize) -> Result<Value, WorkbookError> {
+        let rows = self.fetch_all()?;
+        let mut max_val: Option<Value> = None;
+        for row in &rows {
+            let val = row.get(col).ok_or(WorkbookError::InvalidReference)?;
+            if max_val.as_ref().is_none_or(|m| val > m) {
+                max_val = Some(val.clone());
+            }
+        }
+        max_val.ok_or(WorkbookError::Null)
     }
 
     pub fn fetch_all(self) -> Result<Vec<Row>, WorkbookError> {
