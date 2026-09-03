@@ -5,6 +5,7 @@ use monumentum_db::core::row::Row;
 use monumentum_db::store::storage::StorageEngine;
 
 type Filter<'a> = Box<dyn Fn(&Row) -> bool + 'a>;
+
 #[allow(missing_debug_implementations)]
 pub struct QueryBuilder<'a, S: StorageEngine> {
     workbook: &'a Workbook<S>,
@@ -55,7 +56,7 @@ impl<'a, S: StorageEngine> QueryBuilder<'a, S> {
     }
 
     #[must_use]
-    pub fn build(self) -> Query<'a, S, impl Fn(&Row) -> bool> {
+    pub fn build(self) -> Query<'a, S> {
         let filters = self.filters;
         let combined_filter = move |row: &Row| filters.iter().all(|f| f(row));
 
@@ -73,7 +74,7 @@ impl<'a, S: StorageEngine> QueryBuilder<'a, S> {
     }
 
     #[must_use]
-    pub fn build_query_as<O>(self) -> QueryAs<'a, S, O, impl Fn(&Row) -> bool>
+    pub fn build_query_as<O>(self) -> QueryAs<'a, S, O>
     where
         O: FromRow,
     {
