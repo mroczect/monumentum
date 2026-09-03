@@ -35,7 +35,7 @@ fn min_mixed_returns_float() {
 fn min_empty_errors() {
     assert!(matches!(
         call_function("MIN", &[]),
-        Err(FormulaError::Eval(_))
+        Err(FormulaError::WrongArity(_))
     ));
 }
 
