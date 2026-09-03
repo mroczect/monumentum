@@ -14,6 +14,7 @@ impl Encode for DataType {
             Self::Float => 2,
             Self::Text => 3,
             Self::Blob => 4,
+            Self::Boolean => 5,
         };
         tag.encode(buf)
     }
