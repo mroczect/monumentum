@@ -1,10 +1,6 @@
 name: CI
 
-on:
-  push:
-    branches: ["*"]
-  pull_request:
-    branches: ["*"]
+on: [push, pull_request]
 
 env:
   CARGO_TERM_COLOR: always
@@ -29,11 +25,15 @@ jobs:
   clippy:
     name: Clippy
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        rust: ["1.96.0", "stable", "beta"]
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: "1.96.0"
+          toolchain: ${{ matrix.rust }}
           components: clippy
       - uses: Swatinem/rust-cache@v2
         with:
@@ -45,13 +45,18 @@ jobs:
 
   test:
     name: Test
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        rust: ["1.96.0", "stable"]
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: "1.96.0"
+          toolchain: ${{ matrix.rust }}
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: |
@@ -64,11 +69,15 @@ jobs:
   release-build:
     name: Release Build
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        rust: ["1.96.0", "stable"]
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: "1.96.0"
+          toolchain: ${{ matrix.rust }}
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: |
@@ -102,12 +111,14 @@ jobs:
             .
             monumentum_db
             monumentum_query
-      - run: cargo llvm-cov --workspace --all-features --lcov --output-path lcov.info
-      - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v5
+      - name: Generate coverage report
+        run: cargo llvm-cov --workspace --all-features --lcov --output-path lcov.info
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@v4
         with:
-          files: lcov.info
-          fail_ci_if_error: true
+          name: coverage-lcov
+          path: lcov.info
+          retention-days: 14
 
   unused-deps:
     name: Unused Dependencies
@@ -122,6 +133,8 @@ jobs:
           workspaces: |
             .
             monumentum_db
+            monumentum_workbook
+            monumentum_functions
             monumentum_query
       - uses: taiki-e/install-action@cargo-machete
       - run: cargo machete
