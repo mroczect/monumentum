@@ -21,7 +21,21 @@ fn compare_values(a: &Value, b: &Value) -> Ordering {
     if ra != rb {
         return ra.cmp(&rb);
     }
-    a.partial_cmp(b).unwrap_or(Ordering::Equal)
+
+    match (a, b) {
+        (Integer(x), Integer(y)) => x.as_i64().cmp(&y.as_i64()),
+        (Float(x), Float(y)) => x.total_cmp(y),
+        (Text(x), Text(y)) => x.as_str().cmp(y.as_str()),
+        (Blob(x), Blob(y)) => x.as_slice().cmp(y.as_slice()),
+        (Boolean(x), Boolean(y)) => u8::from(*x).cmp(&u8::from(*y)),
+        (Formula(x), Formula(y)) => x.cmp(y),
+        (Null, Null) => Ordering::Equal,
+        _ => {
+            let sa = format!("{a:?}");
+            let sb = format!("{b:?}");
+            sa.cmp(&sb)
+        }
+    }
 }
 
 impl<S: StorageEngine> Workbook<S> {
