@@ -49,9 +49,7 @@ impl<S: StorageEngine> Workbook<S> {
             new_table.insert(row)?;
         }
 
-        self.catalog.drop_table(old_name)?;
-        self.catalog.create_table(new_table.schema().clone())?;
-        self.catalog.replace_table(new_name, new_table)?;
+        self.catalog.rename_table(old_name, new_name)?;
         Ok(())
     }
 

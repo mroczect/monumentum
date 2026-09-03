@@ -33,6 +33,12 @@ impl Table {
         }
     }
 
+    pub fn rename_schema(&mut self, new_name: &str) -> Result<(), DbError> {
+        let new_schema = TableSchema::try_new(new_name, self.schema.columns().to_vec())?;
+        self.schema = new_schema;
+        Ok(())
+    }
+
     #[must_use]
     pub fn schema(&self) -> &TableSchema {
         &self.schema
