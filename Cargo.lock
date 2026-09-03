@@ -101,6 +101,11 @@ checksum = "32a66949e030da00e8c7d4434b251670a91556f4144941d37452769c25d58a53"
 [[package]]
 name = "monumentum_db"
 version = "0.1.0"
+dependencies = [
+ "pretty_assertions",
+ "proptest",
+ "tempfile",
+]
 
 [[package]]
 name = "monumentum_functions"
