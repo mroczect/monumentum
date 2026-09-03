@@ -1,3 +1,10 @@
+#![allow(
+    clippy::indexing_slicing,
+    clippy::arithmetic_side_effects,
+    clippy::if_same_then_else,
+    clippy::map_unwrap_or,
+    clippy::std_instead_of_core
+)]
 use std::fmt::Write as _;
 use std::io::{self, BufRead, Write};
 use std::path::PathBuf;

@@ -1,3 +1,4 @@
+#![allow(clippy::map_unwrap_or, clippy::unnested_or_patterns)]
 use std::env;
 use std::path::PathBuf;
 

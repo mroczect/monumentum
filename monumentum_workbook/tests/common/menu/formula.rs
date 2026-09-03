@@ -1,3 +1,4 @@
+#![allow(clippy::std_instead_of_core)]
 use monumentum_db::core::schema::column::{ColumnDef, DataType};
 use monumentum_db::core::value::Value;
 use monumentum_db::store::storage::InMemoryStorage;
