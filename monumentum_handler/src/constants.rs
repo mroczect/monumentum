@@ -1,0 +1,10 @@
+pub const HASH_LENGTH: usize = 64;
+pub const MAX_NAME_LENGTH: usize = 255;
+pub const MAX_COLUMNS: usize = 1024;
+pub const MAX_TEXT_SIZE: usize = 16 * 1024 * 1024;
+pub const MAX_BLOB_SIZE: usize = 64 * 1024 * 1024;
+pub const MAX_ROWS_PER_TABLE: usize = 10_000_000;
+pub const MAX_TABLES: usize = 1024;
+pub const MAX_RECORD_SIZE: usize = 64 * 1024 * 1024;
+pub const MAX_SNAPSHOT_SIZE: u64 = 256 * 1024 * 1024;
+pub const MAX_VEC_ELEMENTS: usize = 1_000_000;
