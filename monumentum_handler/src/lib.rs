@@ -5,13 +5,13 @@ extern crate alloc;
 pub mod constants;
 pub mod core;
 pub mod error;
-pub mod store;
+pub mod traits;
 pub mod types;
 pub mod validation;
 
 pub use constants::*;
 pub use core::*;
 pub use error::*;
-pub use store::*;
+pub use traits::*;
 pub use types::*;
 pub use validation::*;
