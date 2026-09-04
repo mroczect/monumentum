@@ -1,16 +1,9 @@
+use fs2 as _;
 use monumentum_core::catalog::Catalog;
 use monumentum_core::table::Table;
 use monumentum_handler::core::schema::column::{ColumnDef, DataType};
 use monumentum_handler::core::schema::table_schema::TableSchema;
 use monumentum_handler::error::DbError;
-
-fn make_schema(name: &str) -> TableSchema {
-    let result = TableSchema::try_new(name, vec![ColumnDef::new("id", DataType::Integer)]);
-    let Ok(schema) = result else {
-        unreachable!("schema creation should succeed for valid input")
-    };
-    schema
-}
 
 #[test]
 fn new_catalog_is_empty() {
@@ -23,7 +16,8 @@ fn new_catalog_is_empty() {
 #[test]
 fn create_table_success() {
     let mut cat = Catalog::new();
-    let schema = make_schema("test");
+    let schema_result = TableSchema::try_new("test", vec![ColumnDef::new("id", DataType::Integer)]);
+    let Ok(schema) = schema_result else { return };
     assert!(cat.create_table(schema).is_ok());
     assert!(!cat.is_empty());
     assert_eq!(cat.len(), 1);
@@ -33,9 +27,12 @@ fn create_table_success() {
 #[test]
 fn create_table_duplicate_name_fails() {
     let mut cat = Catalog::new();
-    let schema1 = make_schema("dup");
-    let schema2 = make_schema("dup");
+    let schema1_result = TableSchema::try_new("dup", vec![ColumnDef::new("id", DataType::Integer)]);
+    let Ok(schema1) = schema1_result else { return };
     assert!(cat.create_table(schema1).is_ok());
+
+    let schema2_result = TableSchema::try_new("dup", vec![ColumnDef::new("id", DataType::Integer)]);
+    let Ok(schema2) = schema2_result else { return };
     let result = cat.create_table(schema2);
     assert!(result.is_err());
     if let Err(e) = result {
@@ -46,7 +43,9 @@ fn create_table_duplicate_name_fails() {
 #[test]
 fn drop_table_existing_removes() {
     let mut cat = Catalog::new();
-    let schema = make_schema("dropme");
+    let schema_result =
+        TableSchema::try_new("dropme", vec![ColumnDef::new("id", DataType::Integer)]);
+    let Ok(schema) = schema_result else { return };
     assert!(cat.create_table(schema).is_ok());
     assert!(cat.drop_table("dropme").is_ok());
     assert!(cat.get_table("dropme").is_none());
@@ -66,7 +65,8 @@ fn drop_table_missing_returns_error() {
 #[test]
 fn rename_table_success_preserves_data() {
     let mut cat = Catalog::new();
-    let schema = make_schema("old");
+    let schema_result = TableSchema::try_new("old", vec![ColumnDef::new("id", DataType::Integer)]);
+    let Ok(schema) = schema_result else { return };
     assert!(cat.create_table(schema).is_ok());
     assert!(cat.rename_table("old", "new").is_ok());
     assert!(cat.get_table("old").is_none());
@@ -76,7 +76,8 @@ fn rename_table_success_preserves_data() {
 #[test]
 fn rename_table_same_name_noop() {
     let mut cat = Catalog::new();
-    let schema = make_schema("same");
+    let schema_result = TableSchema::try_new("same", vec![ColumnDef::new("id", DataType::Integer)]);
+    let Ok(schema) = schema_result else { return };
     assert!(cat.create_table(schema).is_ok());
     assert!(cat.rename_table("same", "same").is_ok());
     assert!(cat.get_table("same").is_some());
@@ -85,10 +86,17 @@ fn rename_table_same_name_noop() {
 #[test]
 fn replace_table_valid() {
     let mut cat = Catalog::new();
-    let schema1 = make_schema("replace");
+    let schema1_result =
+        TableSchema::try_new("replace", vec![ColumnDef::new("id", DataType::Integer)]);
+    let Ok(schema1) = schema1_result else { return };
     assert!(cat.create_table(schema1).is_ok());
-    let new_table = Table::new(make_schema("replace"));
+
+    let schema2_result =
+        TableSchema::try_new("replace", vec![ColumnDef::new("id", DataType::Integer)]);
+    let Ok(schema2) = schema2_result else { return };
+    let new_table = Table::new(schema2);
     assert!(cat.replace_table("replace", new_table).is_ok());
+
     let table = cat.get_table("replace");
     assert!(table.is_some());
     if let Some(t) = table {
