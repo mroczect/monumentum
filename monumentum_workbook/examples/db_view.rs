@@ -10,6 +10,7 @@ use monumentum_functions as _;
 use monumentum_query as _;
 use pretty_assertions as _;
 use proptest as _;
+use serde_json as _;
 use tempfile as _;
 
 #[allow(clippy::too_many_lines)]

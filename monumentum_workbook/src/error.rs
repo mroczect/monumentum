@@ -323,3 +323,9 @@ impl From<FormulaError> for WorkbookError {
         Self::Formula(e)
     }
 }
+
+impl From<std::io::Error> for WorkbookError {
+    fn from(e: std::io::Error) -> Self {
+        Self::Db(DbError::Io(e))
+    }
+}

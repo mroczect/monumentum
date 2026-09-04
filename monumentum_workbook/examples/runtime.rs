@@ -5,6 +5,7 @@
     clippy::map_unwrap_or,
     clippy::std_instead_of_core
 )]
+use serde_json as _;
 use std::fmt::Write as _;
 use std::io::{self, BufRead, Write};
 use std::path::PathBuf;
