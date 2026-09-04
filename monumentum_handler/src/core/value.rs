@@ -172,7 +172,7 @@ impl Value {
     }
 
     #[must_use]
-    pub const fn as_str(&self) -> Option<&str> {
+    pub fn as_str(&self) -> Option<&str> {
         match self {
             Self::Text(t) => Some(t.as_str()),
             Self::Null | Self::Integer(_) | Self::Float(_) | Self::Blob(_) | Self::Boolean(_) => {
