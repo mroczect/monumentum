@@ -57,7 +57,7 @@ impl BTreeOnDisk {
                 };
             }
 
-            let idx = node.keys.partition_point(|k| k < key);
+            let idx = node.keys.partition_point(|k| k <= key);
             let child_page_id = *node.children.get(idx).ok_or_else(|| {
                 DbError::corruption(std::io::Error::new(
                     std::io::ErrorKind::InvalidData,
@@ -154,7 +154,7 @@ impl BTreeOnDisk {
             self.save_node(&node)?;
             Ok(())
         } else {
-            let idx = node.keys.partition_point(|k| k < &key);
+            let idx = node.keys.partition_point(|k| k <= &key);
             let child_page_id = *node
                 .children
                 .get(idx)
@@ -163,7 +163,7 @@ impl BTreeOnDisk {
             if child.keys.len() >= MAX_KEYS_PER_NODE {
                 self.split_child(page_id, idx)?;
                 let parent_after = self.load_node(page_id)?;
-                let new_idx = parent_after.keys.partition_point(|k| k < &key);
+                let new_idx = parent_after.keys.partition_point(|k| k <= &key);
                 let new_child_page_id = *parent_after.children.get(new_idx).ok_or_else(|| {
                     DbError::invalid_operation("child index out of bounds after split")
                 })?;
@@ -457,6 +457,82 @@ impl<'a> NodeCursorMut<'a> {
             .ok_or_else(|| DbError::invalid_operation("insufficient space"))?;
         target.copy_from_slice(bytes);
         self.offset = end;
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::buffer_pool::BufferPool;
+    use crate::pager::Pager;
+    use std::fs;
+    use std::path::PathBuf;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn temp_db_path() -> PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_or(0, |d| d.as_nanos());
+        std::env::temp_dir().join(format!(
+            "monumentum_btree_test_{}_{}.db",
+            std::process::id(),
+            nanos
+        ))
+    }
+
+    fn to_u64(i: i64) -> Result<u64, DbError> {
+        u64::try_from(i).map_err(|e| DbError::invalid_operation(format!("negative value: {e}")))
+    }
+
+    #[test]
+    fn test_btree_insert_and_lookup() -> Result<(), DbError> {
+        let path = temp_db_path();
+        let pager = Pager::open(&path)?;
+        let buffer_pool = BufferPool::new(pager, 10)?;
+        let mut btree = BTreeOnDisk::new(buffer_pool)?;
+
+        for i in 0..10_i64 {
+            let key = IndexKey::Integer(i);
+            let value = to_u64(i)?;
+            btree.insert(key, value)?;
+        }
+
+        for i in 0..10_i64 {
+            let key = IndexKey::Integer(i);
+            let value = to_u64(i)?;
+            let result = btree.lookup(&key)?;
+            assert_eq!(result, Some(value));
+        }
+
+        let missing = btree.lookup(&IndexKey::Integer(99_i64))?;
+        assert_eq!(missing, None);
+
+        let _ = fs::remove_file(&path);
+        Ok(())
+    }
+
+    #[test]
+    fn test_btree_large_insert_causes_split() -> Result<(), DbError> {
+        let path = temp_db_path();
+        let pager = Pager::open(&path)?;
+        let buffer_pool = BufferPool::new(pager, 50)?;
+        let mut btree = BTreeOnDisk::new(buffer_pool)?;
+
+        for i in 0..150_i64 {
+            let key = IndexKey::Integer(i);
+            let value = to_u64(i)?;
+            btree.insert(key, value)?;
+        }
+
+        for i in 0..150_i64 {
+            let key = IndexKey::Integer(i);
+            let value = to_u64(i)?;
+            let result = btree.lookup(&key)?;
+            assert_eq!(result, Some(value));
+        }
+
+        let _ = fs::remove_file(&path);
         Ok(())
     }
 }
