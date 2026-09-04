@@ -1,5 +1,7 @@
 #![forbid(unsafe_code)]
 
+extern crate alloc;
+
 pub mod constants;
 pub mod core;
 pub mod error;
