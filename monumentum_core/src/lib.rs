@@ -12,3 +12,4 @@ pub mod pager;
 pub mod serde;
 pub mod store;
 pub mod table;
+pub mod table_storage;
