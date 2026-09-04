@@ -1,0 +1,20 @@
+[package]
+name = "monumentum_core"
+description = "Reference implementation for monumentum_handler contracts"
+version = "0.1.0"
+readme = "README.md"
+authors.workspace = true
+categories.workspace = true
+documentation.workspace = true
+edition.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+license.workspace = true
+repository.workspace = true	
+rust-version.workspace = true
+
+[dependencies]
+monumentum_handler = { path = "../monumentum_handler" }
+
+[lints]
+workspace = true
