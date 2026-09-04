@@ -8,6 +8,7 @@ use monumentum_workbook::Workbook;
 use monumentum_workbook::transaction::Transaction;
 use pretty_assertions as _;
 use proptest as _;
+use serde_json as _;
 use tempfile as _;
 
 fn custom_double(args: &[Value]) -> Result<Value, FormulaError> {
