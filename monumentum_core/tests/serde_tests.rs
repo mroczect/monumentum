@@ -1,3 +1,4 @@
+use fs2 as _;
 use monumentum_core::catalog::Catalog;
 use monumentum_core::serde::{decode_catalog, encode_catalog};
 use monumentum_handler::core::row::Row;
