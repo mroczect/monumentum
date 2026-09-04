@@ -1,0 +1,11 @@
+#![forbid(unsafe_code)]
+
+extern crate alloc;
+
+use monumentum_handler as _;
+
+pub mod catalog;
+pub mod index;
+pub mod serde;
+pub mod store;
+pub mod table;

@@ -1,0 +1,18 @@
+[package]
+name = "monumentum_core"
+version = "0.1.0"
+edition = "2024"
+authors = ["mroczect"]
+license = "MIT"
+description = "Reference implementation for monumentum_handler contracts"
+repository = "https://github.com/mroczect/monumentum"
+readme = "README.md"
+keywords = ["database", "storage", "monumentum"]
+categories = ["database", "data-structures"]
+rust-version = "1.96"
+
+[dependencies]
+monumentum_handler = { path = "../monumentum_handler" }
+
+[lints]
+workspace = true
