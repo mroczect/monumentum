@@ -52,8 +52,8 @@ pub fn write_all_atomic(path: &Path, data: &[u8]) -> Result<(), DbError> {
             let _ = tmp_options.custom_flags(O_NOFOLLOW);
         }
         let mut tmp_file = tmp_options.open(&tmp_path)?;
-        let _ = tmp_file.write_all(data)?;
-        let _ = tmp_file.sync_all()?;
+        tmp_file.write_all(data)?;
+        tmp_file.sync_all()?;
     }
 
     if let Err(e) = std::fs::rename(&tmp_path, path) {
@@ -62,7 +62,7 @@ pub fn write_all_atomic(path: &Path, data: &[u8]) -> Result<(), DbError> {
     }
 
     if let Ok(dir) = File::open(parent) {
-        let _ = dir.sync_all();
+        dir.sync_all()?;
     }
 
     Ok(())
@@ -81,11 +81,11 @@ fn unique_tmp_path(parent: &Path, base_name: &str) -> PathBuf {
 }
 
 pub fn append_to_file(file: &mut File, data: &[u8]) -> Result<(), DbError> {
-    let _ = file.write_all(data)?;
+    file.write_all(data)?;
     Ok(())
 }
 
 pub fn sync_file(file: &File) -> Result<(), DbError> {
-    let _ = file.sync_all()?;
+    file.sync_all()?;
     Ok(())
 }
