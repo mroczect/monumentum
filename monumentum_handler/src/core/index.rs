@@ -3,7 +3,6 @@ use std::collections::HashMap;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) enum IndexKey {
-    Null,
     Integer(i64),
     Float(u64),
     Text(String),
