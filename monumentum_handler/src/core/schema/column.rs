@@ -225,6 +225,7 @@ impl ColumnDef {
 }
 
 fn evaluate_check_value(value: &Value, check: &CheckConstraint) -> bool {
+    const EPSILON: f64 = 1e-12;
     match (&value, &check.value) {
         (Value::Integer(a), Value::Integer(b)) => match check.op {
             ComparisonOp::Eq => a.as_i64() == b.as_i64(),
@@ -234,14 +235,18 @@ fn evaluate_check_value(value: &Value, check: &CheckConstraint) -> bool {
             ComparisonOp::Gt => a.as_i64() > b.as_i64(),
             ComparisonOp::Gte => a.as_i64() >= b.as_i64(),
         },
-        (Value::Float(a), Value::Float(b)) => match check.op {
-            ComparisonOp::Eq => a.as_f64() == b.as_f64(),
-            ComparisonOp::NotEq => a.as_f64() != b.as_f64(),
-            ComparisonOp::Lt => a.as_f64() < b.as_f64(),
-            ComparisonOp::Lte => a.as_f64() <= b.as_f64(),
-            ComparisonOp::Gt => a.as_f64() > b.as_f64(),
-            ComparisonOp::Gte => a.as_f64() >= b.as_f64(),
-        },
+        (Value::Float(a), Value::Float(b)) => {
+            let a = a.as_f64();
+            let b = b.as_f64();
+            match check.op {
+                ComparisonOp::Eq => (a - b).abs() < EPSILON,
+                ComparisonOp::NotEq => (a - b).abs() >= EPSILON,
+                ComparisonOp::Lt => a < b,
+                ComparisonOp::Lte => a <= b,
+                ComparisonOp::Gt => a > b,
+                ComparisonOp::Gte => a >= b,
+            }
+        }
         (Value::Text(a), Value::Text(b)) => match check.op {
             ComparisonOp::Eq => a.as_str() == b.as_str(),
             ComparisonOp::NotEq => a.as_str() != b.as_str(),
@@ -255,12 +260,15 @@ fn evaluate_check_value(value: &Value, check: &CheckConstraint) -> bool {
             ComparisonOp::NotEq => a.as_slice() != b.as_slice(),
             ComparisonOp::Lt | ComparisonOp::Lte | ComparisonOp::Gt | ComparisonOp::Gte => false,
         },
-        (Value::Null, _)
-        | (Value::Integer(_), _)
-        | (Value::Float(_), _)
-        | (Value::Text(_), _)
-        | (Value::Blob(_), _)
-        | (Value::Boolean(_), _) => false,
+        (
+            Value::Null
+            | Value::Integer(_)
+            | Value::Float(_)
+            | Value::Text(_)
+            | Value::Blob(_)
+            | Value::Boolean(_),
+            _,
+        ) => false,
     }
 }
 
