@@ -43,47 +43,59 @@ pub fn append_record(file: &mut File, payload: &[u8]) -> Result<(), DbError> {
     Ok(())
 }
 
+fn read_exact(file: &mut File, buf: &mut [u8]) -> Result<(), DbError> {
+    let mut bytes_read = 0;
+    while bytes_read < buf.len() {
+        let remaining = buf.get_mut(bytes_read..).ok_or_else(|| {
+            DbError::corruption(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "invalid buffer range",
+            ))
+        })?;
+        match file.read(remaining) {
+            Ok(0) => {
+                return Err(DbError::corruption(std::io::Error::new(
+                    std::io::ErrorKind::UnexpectedEof,
+                    "unexpected end of file",
+                )));
+            }
+            Ok(n) => bytes_read = bytes_read.saturating_add(n),
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(e) => return Err(DbError::from_io(e)),
+        }
+    }
+    Ok(())
+}
+
+fn read_payload(file: &mut File, length: usize) -> Result<Vec<u8>, DbError> {
+    let mut payload = vec![0_u8; length];
+    read_exact(file, &mut payload)?;
+    Ok(payload)
+}
+
 pub fn read_records(file: &mut File) -> Result<Vec<Vec<u8>>, DbError> {
     let mut records = Vec::new();
-    let mut header_buf = [0_u8; HEADER_SIZE];
     let _ = file.seek(SeekFrom::Start(0))?;
 
     loop {
-        let mut bytes_read = 0_usize;
-        while bytes_read < HEADER_SIZE {
-            match file.read(&mut header_buf[bytes_read..]) {
-                Ok(0) => {
-                    if bytes_read == 0 {
-                        return Ok(records);
-                    }
-                    return Err(DbError::corruption(std::io::Error::new(
-                        std::io::ErrorKind::UnexpectedEof,
-                        "unexpected end of file in log header",
-                    )));
-                }
-                Ok(n) => bytes_read = bytes_read.saturating_add(n),
-                Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
-                Err(e) => return Err(DbError::from_io(e)),
-            }
+        let mut header_buf = [0_u8; HEADER_SIZE];
+        let bytes_read = file.read(&mut header_buf[..])?;
+        if bytes_read == 0 {
+            return Ok(records);
+        }
+        if bytes_read != HEADER_SIZE {
+            return Err(DbError::corruption(std::io::Error::new(
+                std::io::ErrorKind::UnexpectedEof,
+                "unexpected end of file in log header",
+            )));
         }
 
-        let magic = u32::from_le_bytes(
-            header_buf
-                .get(0..4)
-                .ok_or_else(|| {
-                    DbError::corruption(std::io::Error::new(
-                        std::io::ErrorKind::InvalidData,
-                        "header too short",
-                    ))
-                })?
-                .try_into()
-                .map_err(|e| {
-                    DbError::corruption(std::io::Error::new(
-                        std::io::ErrorKind::InvalidData,
-                        format!("invalid header slice: {e}"),
-                    ))
-                })?,
-        );
+        let magic = u32::from_le_bytes(header_buf[0..4].try_into().map_err(|e| {
+            DbError::corruption(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!("invalid header slice: {e}"),
+            ))
+        })?);
         if magic != MAGIC {
             return Err(DbError::corruption(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
@@ -91,23 +103,12 @@ pub fn read_records(file: &mut File) -> Result<Vec<Vec<u8>>, DbError> {
             )));
         }
 
-        let version = u32::from_le_bytes(
-            header_buf
-                .get(4..8)
-                .ok_or_else(|| {
-                    DbError::corruption(std::io::Error::new(
-                        std::io::ErrorKind::InvalidData,
-                        "header too short",
-                    ))
-                })?
-                .try_into()
-                .map_err(|e| {
-                    DbError::corruption(std::io::Error::new(
-                        std::io::ErrorKind::InvalidData,
-                        format!("invalid header slice: {e}"),
-                    ))
-                })?,
-        );
+        let version = u32::from_le_bytes(header_buf[4..8].try_into().map_err(|e| {
+            DbError::corruption(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!("invalid header slice: {e}"),
+            ))
+        })?);
         if version != VERSION {
             return Err(DbError::corruption(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
@@ -115,23 +116,12 @@ pub fn read_records(file: &mut File) -> Result<Vec<Vec<u8>>, DbError> {
             )));
         }
 
-        let length_u64 = u64::from_le_bytes(
-            header_buf
-                .get(8..16)
-                .ok_or_else(|| {
-                    DbError::corruption(std::io::Error::new(
-                        std::io::ErrorKind::InvalidData,
-                        "header too short",
-                    ))
-                })?
-                .try_into()
-                .map_err(|e| {
-                    DbError::corruption(std::io::Error::new(
-                        std::io::ErrorKind::InvalidData,
-                        format!("invalid header slice: {e}"),
-                    ))
-                })?,
-        );
+        let length_u64 = u64::from_le_bytes(header_buf[8..16].try_into().map_err(|e| {
+            DbError::corruption(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!("invalid header slice: {e}"),
+            ))
+        })?);
         let length = usize::try_from(length_u64).map_err(|e| {
             DbError::corruption(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
@@ -145,39 +135,14 @@ pub fn read_records(file: &mut File) -> Result<Vec<Vec<u8>>, DbError> {
             )));
         }
 
-        let expected_checksum = u32::from_le_bytes(
-            header_buf
-                .get(16..20)
-                .ok_or_else(|| {
-                    DbError::corruption(std::io::Error::new(
-                        std::io::ErrorKind::InvalidData,
-                        "header too short",
-                    ))
-                })?
-                .try_into()
-                .map_err(|e| {
-                    DbError::corruption(std::io::Error::new(
-                        std::io::ErrorKind::InvalidData,
-                        format!("invalid header slice: {e}"),
-                    ))
-                })?,
-        );
+        let expected_checksum = u32::from_le_bytes(header_buf[16..20].try_into().map_err(|e| {
+            DbError::corruption(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!("invalid header slice: {e}"),
+            ))
+        })?);
 
-        let mut payload = vec![0_u8; length];
-        let mut bytes_read = 0_usize;
-        while bytes_read < length {
-            match file.read(&mut payload[bytes_read..]) {
-                Ok(0) => {
-                    return Err(DbError::corruption(std::io::Error::new(
-                        std::io::ErrorKind::UnexpectedEof,
-                        "unexpected end of file in log payload",
-                    )));
-                }
-                Ok(n) => bytes_read = bytes_read.saturating_add(n),
-                Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
-                Err(e) => return Err(DbError::from_io(e)),
-            }
-        }
+        let payload = read_payload(file, length)?;
 
         let actual_checksum = crc32(&payload);
         if actual_checksum != expected_checksum {
