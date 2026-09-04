@@ -11,6 +11,7 @@ pub const META_LAST_CHECKPOINT_LSN_OFFSET: usize = 12;
 pub const CATALOG_PAGE_HEADER_SIZE: usize = 8;
 pub const CATALOG_CHUNK_SIZE: usize = PAGE_BODY_SIZE - CATALOG_PAGE_HEADER_SIZE;
 pub const META_CATALOG_PAGE_COUNT_OFFSET: usize = 20;
+pub const BTREE_NODE_HEADER_SIZE: usize = 7;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
