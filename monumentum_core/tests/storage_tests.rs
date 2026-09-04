@@ -28,7 +28,7 @@ fn file_storage_persist_and_reload() {
     let _ = std::fs::create_dir(&dir);
     let path = dir.join("test.monumentum");
     {
-        let storage_result = FileStorage::open(&path);
+        let storage_result = FileStorage::open(&path, 10);
         let Ok(mut storage) = storage_result else {
             return;
         };
@@ -44,15 +44,12 @@ fn file_storage_persist_and_reload() {
         assert!(storage.close().is_ok());
     }
     {
-        let storage_result = FileStorage::open(&path);
-        let Ok(mut storage) = storage_result else {
+        let storage_result = FileStorage::open(&path, 10);
+        let Ok(storage) = storage_result else {
             return;
         };
-        let cat_result = storage.reload_from_disk();
-        let Ok(cat) = cat_result else {
-            return;
-        };
-        assert!(cat.get_table("t").is_some());
+        let loaded_catalog = storage.get_catalog();
+        assert!(loaded_catalog.get_table("t").is_some());
         assert!(storage.close().is_ok());
     }
     let _ = std::fs::remove_dir_all(&dir);
