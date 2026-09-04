@@ -1,5 +1,6 @@
 use crate::store::append_log::{append_record, read_records};
 use crate::store::file::{open_or_create, sync_file};
+use fs2::FileExt;
 use monumentum_handler::error::DbError;
 use std::fs::File;
 use std::io::{Seek, SeekFrom};
@@ -13,6 +14,7 @@ pub struct Wal {
 impl Wal {
     pub fn open(path: &Path) -> Result<Self, DbError> {
         let file = open_or_create(path)?;
+        file.try_lock_exclusive().map_err(DbError::from_io)?;
         Ok(Self { file: Some(file) })
     }
 
@@ -55,13 +57,17 @@ impl Wal {
     }
 
     pub fn unlock(&mut self) -> Result<(), DbError> {
-        self.file = None;
+        if let Some(file) = self.file.take() {
+            file.unlock().map_err(DbError::from_io)?;
+        }
         Ok(())
     }
 }
 
 impl Drop for Wal {
     fn drop(&mut self) {
-        self.file = None;
+        if let Some(file) = self.file.take() {
+            let _ = file.unlock();
+        }
     }
 }
