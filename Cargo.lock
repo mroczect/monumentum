@@ -3,5 +3,12 @@
 version = 4
 
 [[package]]
+name = "monumentum_core"
+version = "0.1.0"
+dependencies = [
+ "monumentum_handler",
+]
+
+[[package]]
 name = "monumentum_handler"
 version = "0.1.0"
