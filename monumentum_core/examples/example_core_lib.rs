@@ -1,4 +1,4 @@
-use std::error::Error;
+use core::error::Error;
 use fs2 as _;
 use monumentum_core::catalog::Catalog;
 use monumentum_core::serde::{decode_catalog, encode_catalog};
@@ -16,7 +16,7 @@ fn text_value(s: &str) -> Result<Value, DbError> {
 
 fn main() -> Result<(), Box<dyn Error>> {
     let mut id_col = ColumnDef::new("id", DataType::Integer);
-    id_col.set_unique(true); 
+    id_col.set_unique(true);
 
     let schema = TableSchema::try_new(
         "employees",
