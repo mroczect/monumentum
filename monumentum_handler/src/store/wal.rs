@@ -48,8 +48,8 @@ impl Wal {
             .file
             .as_mut()
             .ok_or_else(|| DbError::invalid_operation("WAL is already unlocked"))?;
-        let _ = file.set_len(0)?;
-        let _ = file.sync_all()?;
+        file.set_len(0)?;
+        file.sync_all()?;
         let _ = file.seek(SeekFrom::Start(0))?;
         Ok(())
     }
