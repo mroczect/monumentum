@@ -82,15 +82,10 @@ impl TableSchema {
     }
 
     #[must_use]
-    pub fn get_column_mut(&mut self, index: usize) -> Option<&mut ColumnDef> {
-        self.columns.get_mut(index)
-    }
-
-    #[must_use]
     pub fn column_index(&self, name: &str) -> Option<usize> {
         self.columns
             .iter()
-            .position(|c| c.name().eq_ignore_ascii_case(name))
+            .position(|c| c.name().to_lowercase() == name.to_lowercase())
     }
 
     #[must_use]
