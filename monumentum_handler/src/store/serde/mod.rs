@@ -249,7 +249,7 @@ impl Decode for Vec<crate::core::value::Value> {
                 "vector too large",
             )));
         }
-        let mut vec = Vec::with_capacity(count);
+        let mut vec = Self::with_capacity(count);
         for _ in 0..count {
             vec.push(crate::core::value::Value::decode(cursor)?);
         }
