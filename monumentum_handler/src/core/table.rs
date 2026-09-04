@@ -80,24 +80,20 @@ impl Table {
         self.schema.validate_values(row.values())?;
 
         for (idx, col) in self.schema.columns().iter().enumerate() {
-            if col.is_unique() || col.is_primary_key() {
-                let val = row
-                    .get(idx)
-                    .ok_or_else(|| DbError::invalid_operation("index out of bounds"))?;
-                if !val.is_null() {
-                    if let Some(key) = IndexKey::from_value(val) {
-                        if let Some(index) = &self.unique_indexes.get(idx).copied().flatten() {
-                            if index.contains(&key) {
-                                return Err(DbError::constraint_violation(
-                                    crate::error::ErrorKind::UniqueViolation,
-                                    format!("duplicate value for column '{}'", col.name()),
-                                    Some(col.name().to_string()),
-                                    Some(self.schema.name().to_string()),
-                                ));
-                            }
-                        }
-                    }
-                }
+            let is_unique_or_pk = col.is_unique() || col.is_primary_key();
+            if is_unique_or_pk
+                && let Some(val) = row.get(&idx)
+                && !val.is_null()
+                && let Some(key) = IndexKey::from_value(val)
+                && let Some(index) = self.unique_indexes.get(idx).and_then(Option::as_ref)
+                && index.contains(&key)
+            {
+                return Err(DbError::constraint_violation(
+                    crate::error::ErrorKind::UniqueViolation,
+                    format!("duplicate value for column '{}'", col.name()),
+                    Some(col.name().to_string()),
+                    Some(self.schema.name().to_string()),
+                ));
             }
         }
 
@@ -105,18 +101,14 @@ impl Table {
         self.rows.push(row);
 
         for (idx, col) in self.schema.columns().iter().enumerate() {
-            if col.is_unique() || col.is_primary_key() {
-                if let Some(val) = self.rows.get(row_idx).and_then(|r| r.get(idx)) {
-                    if !val.is_null() {
-                        if let Some(key) = IndexKey::from_value(val) {
-                            if let Some(index) =
-                                self.unique_indexes.get_mut(idx).and_then(Option::as_mut)
-                            {
-                                index.insert(key, row_idx);
-                            }
-                        }
-                    }
-                }
+            let is_unique_or_pk = col.is_unique() || col.is_primary_key();
+            if is_unique_or_pk
+                && let Some(val) = self.rows.get(row_idx).and_then(|r| r.get(&idx))
+                && !val.is_null()
+                && let Some(key) = IndexKey::from_value(val)
+                && let Some(index) = self.unique_indexes.get_mut(idx).and_then(Option::as_mut)
+            {
+                index.insert(key, row_idx);
             }
         }
 
@@ -158,19 +150,17 @@ impl Table {
             if col.is_unique() || col.is_primary_key() {
                 let mut seen_keys: HashSet<IndexKey> = HashSet::new();
                 for row in &rows {
-                    if let Some(val) = row.get(idx) {
-                        if !val.is_null() {
-                            if let Some(key) = IndexKey::from_value(val) {
-                                if !seen_keys.insert(key) {
-                                    return Err(DbError::constraint_violation(
-                                        crate::error::ErrorKind::UniqueViolation,
-                                        format!("duplicate value for column '{}'", col.name()),
-                                        Some(col.name().to_string()),
-                                        Some(self.schema.name().to_string()),
-                                    ));
-                                }
-                            }
-                        }
+                    if let Some(val) = row.get(&idx)
+                        && !val.is_null()
+                        && let Some(key) = IndexKey::from_value(val)
+                        && !seen_keys.insert(key)
+                    {
+                        return Err(DbError::constraint_violation(
+                            crate::error::ErrorKind::UniqueViolation,
+                            format!("duplicate value for column '{}'", col.name()),
+                            Some(col.name().to_string()),
+                            Some(self.schema.name().to_string()),
+                        ));
                     }
                 }
             }
@@ -209,68 +199,63 @@ impl Table {
 
         if let Some(col) = self.schema.columns().get(col_idx) {
             if col.is_unique() || col.is_primary_key() {
-                if !value.is_null() {
-                    if let Some(key) = IndexKey::from_value(&value) {
-                        let existing_indices = self
-                            .unique_indexes
-                            .get(col_idx)
-                            .and_then(Option::as_ref)
-                            .and_then(|index| index.get_indices(&key))
-                            .map(<[usize]>::to_vec)
-                            .unwrap_or_default();
-                        if existing_indices.iter().any(|&r| r != row_idx) {
-                            return Err(DbError::constraint_violation(
-                                crate::error::ErrorKind::UniqueViolation,
-                                format!("duplicate value for column '{}'", col.name()),
-                                Some(col.name().to_string()),
-                                Some(self.schema.name().to_string()),
-                            ));
-                        }
+                if !value.is_null()
+                    && let Some(key) = IndexKey::from_value(&value)
+                {
+                    let existing_indices = self
+                        .unique_indexes
+                        .get(col_idx)
+                        .and_then(Option::as_ref)
+                        .and_then(|index| index.get_indices(&key))
+                        .map(<[usize]>::to_vec)
+                        .unwrap_or_default();
+                    if existing_indices.iter().any(|&r| r != row_idx) {
+                        return Err(DbError::constraint_violation(
+                            crate::error::ErrorKind::UniqueViolation,
+                            format!("duplicate value for column '{}'", col.name()),
+                            Some(col.name().to_string()),
+                            Some(self.schema.name().to_string()),
+                        ));
                     }
                 }
 
-                let old_value = self.rows.get(row_idx).and_then(|r| r.get(col_idx)).cloned();
-                if let Some(old_val) = old_value {
-                    if !old_val.is_null() {
-                        if let Some(old_key) = IndexKey::from_value(&old_val) {
-                            if let Some(index) = self
-                                .unique_indexes
-                                .get_mut(col_idx)
-                                .and_then(Option::as_mut)
-                            {
-                                index.remove(&old_key, row_idx);
-                            }
-                        }
-                    }
+                let old_value = self
+                    .rows
+                    .get(row_idx)
+                    .and_then(|r| r.get(&col_idx))
+                    .cloned();
+                if let Some(old_val) = old_value
+                    && !old_val.is_null()
+                    && let Some(old_key) = IndexKey::from_value(&old_val)
+                    && let Some(index) = self
+                        .unique_indexes
+                        .get_mut(col_idx)
+                        .and_then(Option::as_mut)
+                {
+                    index.remove(&old_key, row_idx);
                 }
 
-                if let Some(row) = self.rows.get_mut(row_idx) {
-                    if let Some(cell) = row.values_mut().get_mut(col_idx) {
-                        *cell = value;
-                    }
+                if let Some(row) = self.rows.get_mut(row_idx)
+                    && let Some(cell) = row.values_mut().get_mut(col_idx)
+                {
+                    *cell = value;
                 }
 
-                if let Some(row) = self.rows.get(row_idx) {
-                    if let Some(val) = row.get(col_idx) {
-                        if !val.is_null() {
-                            if let Some(new_key) = IndexKey::from_value(val) {
-                                if let Some(index) = self
-                                    .unique_indexes
-                                    .get_mut(col_idx)
-                                    .and_then(Option::as_mut)
-                                {
-                                    index.insert(new_key, row_idx);
-                                }
-                            }
-                        }
-                    }
+                if let Some(row) = self.rows.get(row_idx)
+                    && let Some(val) = row.get(&col_idx)
+                    && !val.is_null()
+                    && let Some(new_key) = IndexKey::from_value(val)
+                    && let Some(index) = self
+                        .unique_indexes
+                        .get_mut(col_idx)
+                        .and_then(Option::as_mut)
+                {
+                    index.insert(new_key, row_idx);
                 }
-            } else {
-                if let Some(row) = self.rows.get_mut(row_idx) {
-                    if let Some(cell) = row.values_mut().get_mut(col_idx) {
-                        *cell = value;
-                    }
-                }
+            } else if let Some(row) = self.rows.get_mut(row_idx)
+                && let Some(cell) = row.values_mut().get_mut(col_idx)
+            {
+                *cell = value;
             }
         }
 
@@ -310,20 +295,17 @@ impl Table {
 
         for (row_idx, row) in self.rows.iter().enumerate() {
             for (col_idx, col) in self.schema.columns().iter().enumerate() {
-                if col.is_unique() || col.is_primary_key() {
-                    if let Some(val) = row.get(col_idx) {
-                        if !val.is_null() {
-                            if let Some(key) = IndexKey::from_value(val) {
-                                if let Some(index) = self
-                                    .unique_indexes
-                                    .get_mut(col_idx)
-                                    .and_then(Option::as_mut)
-                                {
-                                    index.insert(key, row_idx);
-                                }
-                            }
-                        }
-                    }
+                let is_unique_or_pk = col.is_unique() || col.is_primary_key();
+                if is_unique_or_pk
+                    && let Some(val) = row.get(&col_idx)
+                    && !val.is_null()
+                    && let Some(key) = IndexKey::from_value(val)
+                    && let Some(index) = self
+                        .unique_indexes
+                        .get_mut(col_idx)
+                        .and_then(Option::as_mut)
+                {
+                    index.insert(key, row_idx);
                 }
             }
         }
@@ -331,16 +313,16 @@ impl Table {
 
     #[must_use]
     pub fn lookup_by_unique(&self, col_idx: usize, value: &Value) -> Option<&Row> {
-        if let Some(index) = self.unique_indexes.get(col_idx).and_then(Option::as_ref) {
-            if let Some(key) = IndexKey::from_value(value) {
-                if let Some(indices) = index.get_indices(&key) {
-                    if let Some(&row_idx) = indices.first() {
-                        return self.rows.get(row_idx);
-                    }
-                }
-            }
+        if let Some(index) = self.unique_indexes.get(col_idx).and_then(Option::as_ref)
+            && let Some(key) = IndexKey::from_value(value)
+            && let Some(indices) = index.get_indices(&key)
+            && let Some(&row_idx) = indices.first()
+        {
+            return self.rows.get(row_idx);
         }
-        self.rows.iter().find(|row| row.get(col_idx) == Some(value))
+        self.rows
+            .iter()
+            .find(|row| row.get(&col_idx) == Some(value))
     }
 
     #[must_use]
