@@ -60,6 +60,9 @@ impl Table {
                 row.len()
             )));
         }
+        if self.rows.len() >= monumentum_handler::constants::MAX_ROWS_PER_TABLE {
+            return Err(DbError::invalid_operation("too many rows"));
+        }
 
         let mut values = row.values().to_vec();
         for (idx, col) in self.schema.columns().iter().enumerate() {
@@ -175,7 +178,7 @@ impl Table {
         &mut self,
         row_idx: usize,
         col_idx: usize,
-        value: Value,
+        value: &Value,
     ) -> Result<(), DbError> {
         if self.read_only {
             return Err(DbError::invalid_operation("table is read-only"));
@@ -184,23 +187,23 @@ impl Table {
             return Err(DbError::invalid_operation("index out of bounds"));
         }
 
-        let mut new_values = self
+        let old_row = self
             .rows
             .get(row_idx)
-            .ok_or_else(|| DbError::invalid_operation("row index out of bounds"))?
-            .values()
-            .to_vec();
+            .ok_or_else(|| DbError::invalid_operation("row index out of bounds"))?;
+        let mut new_values = old_row.values().to_vec();
         if let Some(cell) = new_values.get_mut(col_idx) {
             *cell = value.clone();
         } else {
             return Err(DbError::invalid_operation("column index out of bounds"));
         }
-        self.schema.validate_values(&new_values)?;
+        let new_row = Row::new(new_values);
+        self.schema.validate_values(new_row.values())?;
 
         if let Some(col) = self.schema.columns().get(col_idx) {
             if col.is_unique() || col.is_primary_key() {
                 if !value.is_null()
-                    && let Some(key) = IndexKey::from_value(&value)
+                    && let Some(key) = IndexKey::from_value(value)
                 {
                     let existing_indices = self
                         .unique_indexes
@@ -219,12 +222,7 @@ impl Table {
                     }
                 }
 
-                let old_value = self
-                    .rows
-                    .get(row_idx)
-                    .and_then(|r| r.get(&col_idx))
-                    .cloned();
-                if let Some(old_val) = old_value
+                if let Some(old_val) = old_row.get(&col_idx).cloned()
                     && !old_val.is_null()
                     && let Some(old_key) = IndexKey::from_value(&old_val)
                     && let Some(index) = self
@@ -235,14 +233,11 @@ impl Table {
                     index.remove(&old_key, row_idx);
                 }
 
-                if let Some(row) = self.rows.get_mut(row_idx)
-                    && let Some(cell) = row.values_mut().get_mut(col_idx)
-                {
-                    *cell = value;
+                if let Some(row) = self.rows.get_mut(row_idx) {
+                    *row = new_row;
                 }
 
-                if let Some(row) = self.rows.get(row_idx)
-                    && let Some(val) = row.get(&col_idx)
+                if let Some(val) = self.rows.get(row_idx).and_then(|r| r.get(&col_idx))
                     && !val.is_null()
                     && let Some(new_key) = IndexKey::from_value(val)
                     && let Some(index) = self
@@ -252,11 +247,11 @@ impl Table {
                 {
                     index.insert(new_key, row_idx);
                 }
-            } else if let Some(row) = self.rows.get_mut(row_idx)
-                && let Some(cell) = row.values_mut().get_mut(col_idx)
-            {
-                *cell = value;
+            } else if let Some(row) = self.rows.get_mut(row_idx) {
+                *row = new_row;
             }
+        } else {
+            return Err(DbError::invalid_operation("column index out of bounds"));
         }
 
         Ok(())
@@ -265,26 +260,25 @@ impl Table {
     pub fn set_column_allowed_values(
         &mut self,
         col_idx: usize,
-        values: Option<Vec<Value>>,
+        values: Option<&Vec<Value>>,
     ) -> Result<(), DbError> {
         if self.read_only {
             return Err(DbError::invalid_operation("table is read-only"));
         }
 
-        let mut test_schema = self.schema.clone();
-        let test_col = test_schema
-            .get_column_mut(col_idx)
+        let mut columns = self.schema.columns().to_vec();
+        let col = columns
+            .get_mut(col_idx)
             .ok_or_else(|| DbError::invalid_operation("column index out of bounds"))?;
-        test_col.set_allowed_values(values.clone());
+        col.set_allowed_values(values.cloned());
+
+        let new_schema = TableSchema::try_new(self.schema.name(), columns)?;
+
         for row in &self.rows {
-            test_schema.validate_values(row.values())?;
+            new_schema.validate_values(row.values())?;
         }
 
-        let col = self
-            .schema
-            .get_column_mut(col_idx)
-            .ok_or_else(|| DbError::invalid_operation("column index out of bounds"))?;
-        col.set_allowed_values(values);
+        self.schema = new_schema;
         Ok(())
     }
 

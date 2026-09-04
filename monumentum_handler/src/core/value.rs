@@ -244,26 +244,29 @@ impl TryFrom<f64> for Value {
     }
 }
 
-impl From<String> for Value {
-    fn from(v: String) -> Self {
-        Self::Text(Text::new(v))
+impl TryFrom<String> for Value {
+    type Error = crate::error::DbError;
+    fn try_from(v: String) -> Result<Self, Self::Error> {
+        Ok(Self::Text(Text::try_new(v)?))
+    }
+}
+impl TryFrom<&str> for Value {
+    type Error = crate::error::DbError;
+    fn try_from(v: &str) -> Result<Self, Self::Error> {
+        Ok(Self::Text(Text::try_new(v.to_string())?))
     }
 }
 
-impl From<&str> for Value {
-    fn from(v: &str) -> Self {
-        Self::Text(Text::new(v.to_string()))
+impl TryFrom<Vec<u8>> for Value {
+    type Error = crate::error::DbError;
+    fn try_from(v: Vec<u8>) -> Result<Self, Self::Error> {
+        Ok(Self::Blob(Blob::try_new(v)?))
     }
 }
 
-impl From<Vec<u8>> for Value {
-    fn from(v: Vec<u8>) -> Self {
-        Self::Blob(Blob::new(v))
-    }
-}
-
-impl From<&[u8]> for Value {
-    fn from(v: &[u8]) -> Self {
-        Self::Blob(Blob::new(v.to_vec()))
+impl TryFrom<&[u8]> for Value {
+    type Error = crate::error::DbError;
+    fn try_from(v: &[u8]) -> Result<Self, Self::Error> {
+        Ok(Self::Blob(Blob::try_new(v.to_vec())?))
     }
 }

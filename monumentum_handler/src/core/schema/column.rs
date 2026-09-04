@@ -130,6 +130,9 @@ impl ColumnDef {
     }
 
     pub const fn set_nullable(&mut self, value: bool) {
+        if value && self.primary_key {
+            return;
+        }
         self.nullable = value;
         if value {
             self.primary_key = false;
@@ -145,6 +148,9 @@ impl ColumnDef {
     }
 
     pub const fn set_unique(&mut self, value: bool) {
+        if self.primary_key {
+            return;
+        }
         self.unique = value;
     }
 
@@ -258,6 +264,11 @@ fn evaluate_check_value(value: &Value, check: &CheckConstraint) -> bool {
         (Value::Blob(a), Value::Blob(b)) => match check.op {
             ComparisonOp::Eq => a.as_slice() == b.as_slice(),
             ComparisonOp::NotEq => a.as_slice() != b.as_slice(),
+            ComparisonOp::Lt | ComparisonOp::Lte | ComparisonOp::Gt | ComparisonOp::Gte => false,
+        },
+        (Value::Boolean(a), Value::Boolean(b)) => match check.op {
+            ComparisonOp::Eq => a == b,
+            ComparisonOp::NotEq => a != b,
             ComparisonOp::Lt | ComparisonOp::Lte | ComparisonOp::Gt | ComparisonOp::Gte => false,
         },
         (

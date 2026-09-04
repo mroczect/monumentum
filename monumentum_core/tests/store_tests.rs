@@ -1,3 +1,4 @@
+use fs2 as _;
 use monumentum_core::store::append_log::{append_record, read_records};
 use monumentum_core::store::recovery::recover_wal;
 use monumentum_core::store::wal::Wal;

@@ -275,11 +275,11 @@ impl Decode for Value {
             }
             TAG_TEXT => {
                 let s = String::decode(cursor)?;
-                Ok(Self::Text(Text::new(s)))
+                Ok(Self::Text(Text::try_new(s)?))
             }
             TAG_BLOB => {
                 let b = Vec::<u8>::decode(cursor)?;
-                Ok(Self::Blob(Blob::new(b)))
+                Ok(Self::Blob(Blob::try_new(b)?))
             }
             TAG_BOOLEAN => {
                 let b = bool::decode(cursor)?;

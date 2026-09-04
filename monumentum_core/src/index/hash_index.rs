@@ -13,8 +13,12 @@ impl HashIndex {
     }
 
     pub fn insert(&mut self, key: IndexKey, row_idx: usize) {
-        self.map.entry(key).or_default().push(row_idx);
+        let indices = self.map.entry(key).or_default();
+        if !indices.contains(&row_idx) {
+            indices.push(row_idx);
+        }
     }
+
     #[must_use]
     pub fn contains(&self, key: &IndexKey) -> bool {
         self.map.contains_key(key)

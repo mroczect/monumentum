@@ -12,6 +12,7 @@ categories = ["database", "data-structures"]
 rust-version = "1.96"
 
 [dependencies]
+fs2 = "0.4.3"
 monumentum_handler = { path = "../monumentum_handler" }
 
 [lints]

@@ -72,11 +72,20 @@ impl Decode for ColumnDef {
         let unique = bool::decode(cursor)?;
 
         let mut col = Self::new(name, data_type);
-        col.set_nullable(nullable);
-        col.set_unique(unique);
+
         if primary_key {
+            if nullable || !unique {
+                return Err(DbError::corruption(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "inconsistent primary key flags in serialized data",
+                )));
+            }
             col.set_primary_key(true);
+        } else {
+            col.set_nullable(nullable);
+            col.set_unique(unique);
         }
+
         col.set_default(Option::<Value>::decode(cursor)?);
         col.set_check(Option::<CheckConstraint>::decode(cursor)?);
         col.set_foreign_key(Option::<ForeignKey>::decode(cursor)?);

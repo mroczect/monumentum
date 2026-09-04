@@ -1,17 +1,13 @@
+use crate::error::DbError;
 use core::fmt;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Blob(Vec<u8>);
 
 impl Blob {
-    #[must_use]
-    pub const fn new(value: Vec<u8>) -> Self {
-        Self(value)
-    }
-
-    pub fn try_new(value: Vec<u8>) -> Result<Self, crate::error::DbError> {
+    pub fn try_new(value: Vec<u8>) -> Result<Self, DbError> {
         if value.len() > crate::constants::MAX_BLOB_SIZE {
-            return Err(crate::error::DbError::invalid_operation(format!(
+            return Err(DbError::invalid_operation(format!(
                 "blob size {} exceeds maximum {}",
                 value.len(),
                 crate::constants::MAX_BLOB_SIZE
@@ -42,15 +38,17 @@ impl fmt::Display for Blob {
     }
 }
 
-impl From<Vec<u8>> for Blob {
-    fn from(value: Vec<u8>) -> Self {
-        Self::new(value)
+impl TryFrom<Vec<u8>> for Blob {
+    type Error = DbError;
+    fn try_from(value: Vec<u8>) -> Result<Self, Self::Error> {
+        Self::try_new(value)
     }
 }
 
-impl From<&[u8]> for Blob {
-    fn from(value: &[u8]) -> Self {
-        Self::new(value.to_vec())
+impl TryFrom<&[u8]> for Blob {
+    type Error = DbError;
+    fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
+        Self::try_new(value.to_vec())
     }
 }
 

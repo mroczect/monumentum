@@ -6,6 +6,8 @@ use std::io::{Read, Seek, SeekFrom};
 const MAGIC: u32 = 0x4D4F_4E55;
 const VERSION: u32 = 1;
 const HEADER_SIZE: usize = 20;
+const MAX_TOTAL_WAL_BYTES: usize = 256 * 1024 * 1024;
+const MAX_WAL_RECORDS: usize = 1_000_000;
 
 fn crc32(data: &[u8]) -> u32 {
     let mut crc = 0xFFFF_FFFF_u32;
@@ -74,6 +76,8 @@ fn read_payload(file: &mut File, length: usize) -> Result<Vec<u8>, DbError> {
 
 pub fn read_records(file: &mut File) -> Result<Vec<Vec<u8>>, DbError> {
     let mut records = Vec::new();
+    let mut total_bytes = 0_usize;
+    let mut record_count = 0_usize;
     let _ = file.seek(SeekFrom::Start(0))?;
 
     loop {
@@ -148,6 +152,15 @@ pub fn read_records(file: &mut File) -> Result<Vec<Vec<u8>>, DbError> {
             return Err(DbError::corruption(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
                 "checksum mismatch in log record",
+            )));
+        }
+
+        total_bytes = total_bytes.saturating_add(payload.len());
+        record_count = record_count.saturating_add(1);
+        if total_bytes > MAX_TOTAL_WAL_BYTES || record_count > MAX_WAL_RECORDS {
+            return Err(DbError::corruption(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "WAL exceeds maximum allowed size or record count",
             )));
         }
 

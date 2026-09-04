@@ -1,3 +1,4 @@
+use fs2 as _;
 use monumentum_core::catalog::Catalog;
 use monumentum_core::store::storage::{FileStorage, InMemoryStorage, StorageEngine};
 use monumentum_handler::core::schema::column::{ColumnDef, DataType};
