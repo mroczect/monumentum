@@ -3,6 +3,7 @@ mod encode;
 
 use monumentum_handler::{
     Value,
+    core::row::Row,
     error::DbError,
     types::{Blob, Float, Integer, Text},
 };
@@ -302,4 +303,52 @@ pub fn encode_catalog(catalog: &crate::catalog::Catalog) -> Result<Vec<u8>, DbEr
 pub fn decode_catalog(data: &[u8]) -> Result<crate::catalog::Catalog, DbError> {
     let mut cursor = Cursor::new(data);
     crate::catalog::Catalog::decode(&mut cursor)
+}
+
+pub fn encode_row(row: &Row) -> Result<Vec<u8>, DbError> {
+    let mut payload = Vec::new();
+    row.encode(&mut payload)?;
+    let len = u32::try_from(payload.len())
+        .map_err(|e| DbError::invalid_operation(format!("row too large: {e}")))?;
+    let total_len = 4_usize
+        .checked_add(payload.len())
+        .ok_or_else(|| DbError::invalid_operation("row length overflow"))?;
+    let mut buf = Vec::with_capacity(total_len);
+    buf.extend_from_slice(&len.to_le_bytes());
+    buf.extend_from_slice(&payload);
+    Ok(buf)
+}
+
+pub fn decode_row(data: &[u8]) -> Result<Row, DbError> {
+    let len = u32::from_le_bytes(
+        data.get(0..4)
+            .ok_or_else(|| {
+                DbError::corruption(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "missing row length",
+                ))
+            })?
+            .try_into()
+            .map_err(|e| {
+                DbError::corruption(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!("invalid row length: {e}"),
+                ))
+            })?,
+    ) as usize;
+    let start = 4_usize;
+    let end = start.checked_add(len).ok_or_else(|| {
+        DbError::corruption(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "row length overflow",
+        ))
+    })?;
+    let row_bytes = data.get(start..end).ok_or_else(|| {
+        DbError::corruption(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "row bytes missing",
+        ))
+    })?;
+    let mut cursor = Cursor::new(row_bytes);
+    Row::decode(&mut cursor)
 }
