@@ -1,3 +1,4 @@
+use fs2 as _;
 use monumentum_core::index::{HashIndex, IndexKey};
 use monumentum_handler::Value;
 
