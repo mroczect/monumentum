@@ -1,5 +1,5 @@
 [workspace]
-members = ["monumentum_handler"]
+members = ["monumentum_core","monumentum_handler"]
 resolver = "3"
 
 [workspace.lints.clippy]
