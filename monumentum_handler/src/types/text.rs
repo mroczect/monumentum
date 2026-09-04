@@ -6,11 +6,6 @@ use core::fmt;
 pub struct Text(String);
 
 impl Text {
-    #[must_use]
-    pub const fn new(value: String) -> Self {
-        Self(value)
-    }
-
     pub fn try_new(value: String) -> Result<Self, DbError> {
         if value.len() > MAX_TEXT_SIZE {
             return Err(DbError::invalid_operation(format!(
@@ -51,6 +46,7 @@ impl Text {
     pub fn contains_ignore_case(&self, needle: &str) -> bool {
         self.0.to_lowercase().contains(&needle.to_lowercase())
     }
+
     #[must_use]
     pub const fn as_bytes(&self) -> &[u8] {
         self.0.as_bytes()
@@ -63,15 +59,17 @@ impl fmt::Display for Text {
     }
 }
 
-impl From<String> for Text {
-    fn from(value: String) -> Self {
-        Self::new(value)
+impl TryFrom<String> for Text {
+    type Error = DbError;
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        Self::try_new(value)
     }
 }
 
-impl From<&str> for Text {
-    fn from(value: &str) -> Self {
-        Self::new(value.to_string())
+impl TryFrom<&str> for Text {
+    type Error = DbError;
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        Self::try_new(value.to_string())
     }
 }
 
