@@ -1,7 +1,7 @@
 use crate::core::schema::table_schema::TableSchema;
 use crate::core::table::Table;
 use crate::error::DbError;
-use std::collections::BTreeMap;
+use alloc::collections::BTreeMap;
 
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct Catalog {
