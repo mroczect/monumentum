@@ -9,6 +9,27 @@ const HEADER_SIZE: usize = 20;
 const MAX_TOTAL_WAL_BYTES: usize = 256 * 1024 * 1024;
 const MAX_WAL_RECORDS: usize = 1_000_000;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum WalRecordType {
+    Snapshot = 0,
+    PageWrite = 1,
+}
+
+impl TryFrom<u8> for WalRecordType {
+    type Error = DbError;
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(Self::Snapshot),
+            1 => Ok(Self::PageWrite),
+            _ => Err(DbError::corruption(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "invalid WAL record type",
+            ))),
+        }
+    }
+}
+
 fn crc32(data: &[u8]) -> u32 {
     let mut crc = 0xFFFF_FFFF_u32;
     for &byte in data {
@@ -42,6 +63,86 @@ pub fn append_record(file: &mut File, payload: &[u8]) -> Result<(), DbError> {
     append_to_file(file, payload)?;
     sync_file(file)?;
     Ok(())
+}
+
+pub fn append_wal_record(
+    file: &mut File,
+    lsn: u64,
+    record_type: WalRecordType,
+    data: &[u8],
+) -> Result<(), DbError> {
+    let payload_len = 8_usize
+        .checked_add(1)
+        .and_then(|v| v.checked_add(data.len()))
+        .ok_or_else(|| DbError::invalid_operation("payload size overflow"))?;
+
+    let mut payload = Vec::with_capacity(payload_len);
+    payload.extend_from_slice(&lsn.to_le_bytes());
+    payload.push(record_type as u8);
+    payload.extend_from_slice(data);
+    append_record(file, &payload)
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WalRecord {
+    pub lsn: u64,
+    pub record_type: WalRecordType,
+    pub data: Vec<u8>,
+}
+
+pub fn read_wal_records(file: &mut File) -> Result<Vec<WalRecord>, DbError> {
+    let raw_records = read_records(file)?;
+    let mut records = Vec::with_capacity(raw_records.len());
+    for raw in raw_records {
+        if raw.len() < 9 {
+            return Err(DbError::corruption(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "WAL record too short",
+            )));
+        }
+
+        let lsn_bytes = raw
+            .get(0..8)
+            .ok_or_else(|| {
+                DbError::corruption(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "missing LSN in WAL record",
+                ))
+            })?
+            .try_into()
+            .map_err(|e| {
+                DbError::corruption(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!("invalid LSN slice: {e}"),
+                ))
+            })?;
+        let lsn = u64::from_le_bytes(lsn_bytes);
+
+        let record_type_byte = raw.get(8).ok_or_else(|| {
+            DbError::corruption(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "missing record type in WAL record",
+            ))
+        })?;
+        let record_type = WalRecordType::try_from(*record_type_byte)?;
+
+        let data = raw
+            .get(9..)
+            .ok_or_else(|| {
+                DbError::corruption(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "missing data in WAL record",
+                ))
+            })?
+            .to_vec();
+
+        records.push(WalRecord {
+            lsn,
+            record_type,
+            data,
+        });
+    }
+    Ok(records)
 }
 
 fn read_exact(file: &mut File, buf: &mut [u8]) -> Result<(), DbError> {
