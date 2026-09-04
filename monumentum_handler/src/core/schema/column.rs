@@ -341,12 +341,3 @@ impl ColumnIndex<crate::core::schema::table_schema::TableSchema> for &str {
             .ok_or_else(|| DbError::column_not_found(*self))
     }
 }
-
-impl ColumnIndex<crate::core::table::Table> for &str {
-    fn index(&self, table: &crate::core::table::Table) -> Result<usize, DbError> {
-        table
-            .schema()
-            .column_index(self)
-            .ok_or_else(|| DbError::column_not_found(*self))
-    }
-}
