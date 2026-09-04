@@ -1,4 +1,4 @@
-use crate::index::{HashIndex, IndexKey};
+use crate::index::{BTreeIndex, IndexKey};
 use monumentum_handler::error::ErrorKind;
 use monumentum_handler::{
     ColumnDef, core::row::Row, core::schema::table_schema::TableSchema, core::value::Value,
@@ -10,7 +10,7 @@ use std::collections::HashSet;
 pub struct Table {
     schema: TableSchema,
     rows: Vec<Row>,
-    unique_indexes: Vec<Option<HashIndex>>,
+    unique_indexes: Vec<Option<BTreeIndex>>,
     read_only: bool,
 }
 
@@ -20,7 +20,7 @@ impl Table {
         let mut unique_indexes = Vec::with_capacity(schema.columns().len());
         for col in schema.columns() {
             if col.is_unique() || col.is_primary_key() {
-                unique_indexes.push(Some(HashIndex::new()));
+                unique_indexes.push(Some(BTreeIndex::new()));
             } else {
                 unique_indexes.push(None);
             }
