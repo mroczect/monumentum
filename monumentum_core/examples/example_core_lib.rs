@@ -79,15 +79,15 @@ fn main() -> Result<(), Box<dyn Error>> {
     let path = dir.join("example.monumentum");
 
     {
-        let mut storage = FileStorage::open(&path)?;
+        let mut storage = FileStorage::open(&path, 10)?;
         storage.save_catalog(&cat)?;
         storage.checkpoint()?;
         storage.close()?;
     }
 
     {
-        let mut storage = FileStorage::open(&path)?;
-        let reloaded = storage.reload_from_disk()?;
+        let storage = FileStorage::open(&path, 10)?;
+        let reloaded = storage.get_catalog().clone();
         assert_eq!(reloaded, cat, "Reloaded catalog must match saved");
         storage.close()?;
     }
