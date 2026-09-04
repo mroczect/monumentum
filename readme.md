@@ -1,7 +1,5 @@
 # Monumentum
 
-**A modular, safe, and embeddable spreadsheet & database engine written in pure Rust.**
-
 [![CI](https://github.com/mroczect/monumentum/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/mroczect/monumentum/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Rust Version](https://img.shields.io/badge/rust-1.96%2B-blue.svg)](https://blog.rust-lang.org/2024/06/13/Rust-1.96.0.html)
