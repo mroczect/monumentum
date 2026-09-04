@@ -49,11 +49,8 @@ impl Text {
 
     #[must_use]
     pub fn contains_ignore_case(&self, needle: &str) -> bool {
-        let hay = self.0.to_lowercase();
-        let needle = needle.to_lowercase();
-        hay.contains(&needle)
+        self.0.to_lowercase().contains(&needle.to_lowercase())
     }
-
     #[must_use]
     pub const fn as_bytes(&self) -> &[u8] {
         self.0.as_bytes()
