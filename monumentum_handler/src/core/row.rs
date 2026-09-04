@@ -33,14 +33,4 @@ impl Row {
     pub const fn is_empty(&self) -> bool {
         self.values.is_empty()
     }
-
-    #[must_use]
-    pub const fn values_mut(&mut self) -> &mut Vec<Value> {
-        &mut self.values
-    }
-
-    #[must_use]
-    pub fn get_mut(&mut self, index: usize) -> Option<&mut Value> {
-        self.values.get_mut(index)
-    }
 }
