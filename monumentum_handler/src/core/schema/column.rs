@@ -293,19 +293,19 @@ pub trait Column {
 
 impl Column for ColumnDef {
     fn name(&self) -> &str {
-        self.name()
+        Self::name(self)
     }
     fn data_type(&self) -> &DataType {
-        self.data_type()
+        Self::data_type(self)
     }
     fn is_nullable(&self) -> bool {
-        self.is_nullable()
+        Self::is_nullable(self)
     }
     fn is_primary_key(&self) -> bool {
-        self.is_primary_key()
+        Self::is_primary_key(self)
     }
     fn is_unique(&self) -> bool {
-        self.is_unique()
+        Self::is_unique(self)
     }
 }
 
