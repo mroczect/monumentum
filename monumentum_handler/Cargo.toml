@@ -1,15 +1,15 @@
 [package]
 name = "monumentum_handler"
 version = "0.1.0"
-authors.workspace = true
-categories.workspace = true
-documentation.workspace = true
-edition.workspace = true
-homepage.workspace = true
-keywords.workspace = true
-license.workspace = true
-repository.workspace = true
-rust-version.workspace = true
+edition = "2024"
+authors = ["mroczect"]
+license = "MIT"
+description = "Core database contracts and reference storage for monumentum"
+repository = "https://github.com/mroczect/monumentum"
+readme = "README.md"
+keywords = ["database", "storage", "monumentum"]
+categories = ["database", "data-structures"]
+rust-version = "1.96"
 
 [dependencies]
 
