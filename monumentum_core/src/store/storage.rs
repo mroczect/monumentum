@@ -7,6 +7,7 @@ use crate::page::{
     META_LAST_CHECKPOINT_LSN_OFFSET, META_LSN_OFFSET, META_PAGE_ID, Page, PageType,
 };
 use crate::pager::Pager;
+use crate::serde::{Decode, Encode};
 use crate::serde::{decode_catalog, encode_catalog};
 use crate::store::append_log::WalRecordType;
 use crate::store::wal::Wal;
@@ -19,6 +20,7 @@ use monumentum_handler::core::schema::table_schema::TableSchema;
 use monumentum_handler::core::value::Value;
 use monumentum_handler::error::DbError;
 use monumentum_handler::traits::StorageEngine;
+use std::io::Cursor;
 use std::path::Path;
 
 #[derive(Debug)]
@@ -277,6 +279,24 @@ impl FileStorage {
                         }
                     }
                 }
+                WalRecordType::TableMetaUpdate => {
+                    let (table_name, next_row_id, index_root) =
+                        Self::decode_table_meta_update(&record.data)?;
+                    if let Some(table_meta) = self.catalog.get_table_mut(&table_name) {
+                        table_meta.set_next_row_id(next_row_id);
+                        if let Some(root) = index_root {
+                            table_meta.set_index_root_page_id(root);
+                        } else {
+                            table_meta.clear_index_root_page_id();
+                        }
+                    }
+                    if let Some(root) = index_root {
+                        let _ = self.index_data.insert(table_name.clone(), root);
+                    } else {
+                        let _ = self.index_data.remove(&table_name);
+                    }
+                    self.current_lsn = record.lsn;
+                }
             }
         }
         Ok(())
@@ -329,6 +349,10 @@ impl FileStorage {
     }
 
     pub fn checkpoint(&mut self) -> Result<(), DbError> {
+        let catalog = self.catalog.clone();
+        self.write_catalog_to_pages(&catalog)?;
+
+        self.buffer_pool.flush_all()?;
         self.buffer_pool.flush_all()?;
         {
             let meta_page = self.buffer_pool.get_page(META_PAGE_ID)?;
@@ -498,6 +522,49 @@ impl FileStorage {
     pub fn get_table(&self, name: &str) -> Option<&Table> {
         self.catalog.get_table(name)
     }
+
+    fn read_all_rows(&mut self, table: &str) -> Result<Vec<Row>, DbError> {
+        let first_page_id = self
+            .table_data
+            .get(table)
+            .map(TableStorage::first_data_page_id)
+            .ok_or_else(|| DbError::table_not_found(table))?;
+        let mut rows = Vec::new();
+        let mut idx = 0usize;
+        loop {
+            let row = TableStorage::get_row_static(&mut self.buffer_pool, first_page_id, idx)?;
+            match row {
+                Some(r) => {
+                    rows.push(r);
+                    idx = idx
+                        .checked_add(1)
+                        .ok_or_else(|| DbError::invalid_operation("row index overflow"))?;
+                }
+                None => break,
+            }
+        }
+        Ok(rows)
+    }
+
+    fn encode_table_meta_update(
+        table_name: &str,
+        next_row_id: u64,
+        index_root_page_id: Option<u32>,
+    ) -> Result<Vec<u8>, DbError> {
+        let mut buf = Vec::new();
+        table_name.as_bytes().encode(&mut buf)?;
+        next_row_id.encode(&mut buf)?;
+        index_root_page_id.encode(&mut buf)?;
+        Ok(buf)
+    }
+
+    fn decode_table_meta_update(data: &[u8]) -> Result<(String, u64, Option<u32>), DbError> {
+        let mut cursor = Cursor::new(data);
+        let table_name = String::decode(&mut cursor)?;
+        let next_row_id = u64::decode(&mut cursor)?;
+        let index_root_page_id = Option::<u32>::decode(&mut cursor)?;
+        Ok((table_name, next_row_id, index_root_page_id))
+    }
 }
 
 impl StorageEngine for FileStorage {
@@ -587,8 +654,22 @@ impl StorageEngine for FileStorage {
             self.append_page_write_wal(page_id)?;
         }
 
-        let catalog = self.catalog.clone();
-        self.write_catalog_to_pages(&catalog)
+        let table_meta = self
+            .catalog
+            .get_table(table)
+            .ok_or_else(|| DbError::table_not_found(table))?;
+        let next_row_id = table_meta.next_row_id();
+        let index_root = table_meta.index_root_page_id();
+
+        let payload = Self::encode_table_meta_update(table, next_row_id, index_root)?;
+        let new_lsn = self
+            .current_lsn
+            .checked_add(1)
+            .ok_or_else(|| DbError::invalid_operation("LSN overflow"))?;
+        self.wal
+            .append_wal_record(new_lsn, WalRecordType::TableMetaUpdate, &payload)?;
+        self.current_lsn = new_lsn;
+        Ok(())
     }
 
     fn get_row(&mut self, table: &str, row_idx: usize) -> Result<Option<Row>, DbError> {
@@ -602,16 +683,171 @@ impl StorageEngine for FileStorage {
 
     fn set_cell(
         &mut self,
-        _table: &str,
-        _row_idx: usize,
-        _col_idx: usize,
-        _value: Value,
+        table: &str,
+        row_idx: usize,
+        col_idx: usize,
+        value: Value,
     ) -> Result<(), DbError> {
-        Err(DbError::unsupported("row operations not yet integrated"))
+        let schema = self
+            .catalog
+            .get_table(table)
+            .ok_or_else(|| DbError::table_not_found(table))?
+            .schema()
+            .clone();
+
+        let mut rows = self.read_all_rows(table)?;
+        if row_idx >= rows.len() {
+            return Err(DbError::invalid_operation("row index out of bounds"));
+        }
+        let row = rows
+            .get_mut(row_idx)
+            .ok_or_else(|| DbError::invalid_operation("row missing"))?;
+        if col_idx >= row.len() {
+            return Err(DbError::invalid_operation("column index out of bounds"));
+        }
+        let mut values = row.values().to_vec();
+        let cell = values
+            .get_mut(col_idx)
+            .ok_or_else(|| DbError::invalid_operation("column index out of bounds"))?;
+        *cell = value;
+        *row = Row::new(values);
+
+        let first_page_id = self
+            .table_data
+            .get(table)
+            .map(TableStorage::first_data_page_id)
+            .ok_or_else(|| DbError::table_not_found(table))?;
+
+        TableStorage::clear_static(&mut self.buffer_pool, first_page_id)?;
+
+        if schema.columns().iter().any(ColumnDef::is_primary_key) {
+            let btree = BTreeOnDisk::create(&mut self.buffer_pool)?;
+            let root_id = btree.root_page_id();
+            let _ = self.index_data.insert(table.to_string(), root_id);
+            if let Some(table_meta) = self.catalog.get_table_mut(table) {
+                table_meta.set_index_root_page_id(root_id);
+            }
+        } else {
+            let _ = self.index_data.remove(table);
+            if let Some(table_meta) = self.catalog.get_table_mut(table) {
+                table_meta.clear_index_root_page_id();
+            }
+        }
+
+        let mut current_idx = 0u64;
+        for row in &rows {
+            TableStorage::insert_row_static(&mut self.buffer_pool, first_page_id, row)?;
+            if let Some(pk_col_idx) = schema.columns().iter().position(ColumnDef::is_primary_key)
+                && let Some(key_val) = row.get(pk_col_idx)
+                && let Some(index_key) = IndexKey::from_value(key_val)
+                && let Some(root_id) = self.index_data.get_mut(table)
+            {
+                let old_root = *root_id;
+                BTreeOnDisk::insert_static(&mut self.buffer_pool, root_id, index_key, current_idx)?;
+                if *root_id != old_root
+                    && let Some(table_meta) = self.catalog.get_table_mut(table)
+                {
+                    table_meta.set_index_root_page_id(*root_id);
+                }
+            }
+            current_idx = current_idx
+                .checked_add(1)
+                .ok_or_else(|| DbError::invalid_operation("row index overflow"))?;
+        }
+
+        if let Some(table_meta) = self.catalog.get_table_mut(table) {
+            table_meta.set_next_row_id(current_idx);
+        }
+
+        let table_meta = self
+            .catalog
+            .get_table(table)
+            .ok_or_else(|| DbError::table_not_found(table))?;
+        let next_row_id = table_meta.next_row_id();
+        let index_root = table_meta.index_root_page_id();
+
+        let payload = Self::encode_table_meta_update(table, next_row_id, index_root)?;
+        let new_lsn = self
+            .current_lsn
+            .checked_add(1)
+            .ok_or_else(|| DbError::invalid_operation("LSN overflow"))?;
+        self.wal
+            .append_wal_record(new_lsn, WalRecordType::TableMetaUpdate, &payload)?;
+        self.current_lsn = new_lsn;
+        Ok(())
     }
 
-    fn replace_rows(&mut self, _table: &str, _rows: Vec<Row>) -> Result<(), DbError> {
-        Err(DbError::unsupported("row operations not yet integrated"))
+    fn replace_rows(&mut self, table: &str, rows: Vec<Row>) -> Result<(), DbError> {
+        let schema = self
+            .catalog
+            .get_table(table)
+            .ok_or_else(|| DbError::table_not_found(table))?
+            .schema()
+            .clone();
+
+        let first_page_id = self
+            .table_data
+            .get(table)
+            .map(TableStorage::first_data_page_id)
+            .ok_or_else(|| DbError::table_not_found(table))?;
+
+        TableStorage::clear_static(&mut self.buffer_pool, first_page_id)?;
+
+        if schema.columns().iter().any(ColumnDef::is_primary_key) {
+            let btree = BTreeOnDisk::create(&mut self.buffer_pool)?;
+            let root_id = btree.root_page_id();
+            let _ = self.index_data.insert(table.to_string(), root_id);
+            if let Some(table_meta) = self.catalog.get_table_mut(table) {
+                table_meta.set_index_root_page_id(root_id);
+            }
+        } else {
+            let _ = self.index_data.remove(table);
+            if let Some(table_meta) = self.catalog.get_table_mut(table) {
+                table_meta.clear_index_root_page_id();
+            }
+        }
+
+        let mut current_idx = 0u64;
+        for row in &rows {
+            TableStorage::insert_row_static(&mut self.buffer_pool, first_page_id, row)?;
+            if let Some(pk_col_idx) = schema.columns().iter().position(ColumnDef::is_primary_key)
+                && let Some(key_val) = row.get(pk_col_idx)
+                && let Some(index_key) = IndexKey::from_value(key_val)
+                && let Some(root_id) = self.index_data.get_mut(table)
+            {
+                let old_root = *root_id;
+                BTreeOnDisk::insert_static(&mut self.buffer_pool, root_id, index_key, current_idx)?;
+                if *root_id != old_root
+                    && let Some(table_meta) = self.catalog.get_table_mut(table)
+                {
+                    table_meta.set_index_root_page_id(*root_id);
+                }
+            }
+            current_idx = current_idx
+                .checked_add(1)
+                .ok_or_else(|| DbError::invalid_operation("row index overflow"))?;
+        }
+
+        if let Some(table_meta) = self.catalog.get_table_mut(table) {
+            table_meta.set_next_row_id(current_idx);
+        }
+
+        let table_meta = self
+            .catalog
+            .get_table(table)
+            .ok_or_else(|| DbError::table_not_found(table))?;
+        let next_row_id = table_meta.next_row_id();
+        let index_root = table_meta.index_root_page_id();
+
+        let payload = Self::encode_table_meta_update(table, next_row_id, index_root)?;
+        let new_lsn = self
+            .current_lsn
+            .checked_add(1)
+            .ok_or_else(|| DbError::invalid_operation("LSN overflow"))?;
+        self.wal
+            .append_wal_record(new_lsn, WalRecordType::TableMetaUpdate, &payload)?;
+        self.current_lsn = new_lsn;
+        Ok(())
     }
 
     fn checkpoint(&mut self) -> Result<(), DbError> {

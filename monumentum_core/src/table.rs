@@ -76,4 +76,8 @@ impl Table {
             .ok_or_else(|| DbError::invalid_operation("row id overflow"))?;
         Ok(current)
     }
+
+    pub const fn clear_index_root_page_id(&mut self) {
+        self.index_root_page_id = None;
+    }
 }

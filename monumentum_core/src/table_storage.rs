@@ -234,6 +234,26 @@ impl TableStorage {
     pub const fn from_first_page_id(first_data_page_id: u32) -> Self {
         Self { first_data_page_id }
     }
+
+    pub fn clear_static(
+        buffer_pool: &mut BufferPool,
+        first_data_page_id: u32,
+    ) -> Result<(), DbError> {
+        let mut current_page_id = first_data_page_id;
+        loop {
+            let page = buffer_pool.get_page(current_page_id)?;
+            page.header.page_type = PageType::Data;
+            let next_page_id = Self::get_next_page_id(page)?;
+            page.data[0..4].copy_from_slice(&0u32.to_le_bytes());
+            page.data[4..8].copy_from_slice(&0u32.to_le_bytes());
+            buffer_pool.unpin_page(current_page_id, true)?;
+            if next_page_id == 0 {
+                break;
+            }
+            current_page_id = next_page_id;
+        }
+        Ok(())
+    }
 }
 
 impl TableStore for TableStorage {

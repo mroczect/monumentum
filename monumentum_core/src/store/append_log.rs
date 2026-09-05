@@ -14,14 +14,15 @@ const MAX_WAL_RECORDS: usize = 1_000_000;
 pub enum WalRecordType {
     Snapshot = 0,
     PageWrite = 1,
+    TableMetaUpdate = 2,
 }
-
 impl TryFrom<u8> for WalRecordType {
     type Error = DbError;
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         match value {
             0 => Ok(Self::Snapshot),
             1 => Ok(Self::PageWrite),
+            2 => Ok(Self::TableMetaUpdate),
             _ => Err(DbError::corruption(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
                 "invalid WAL record type",
