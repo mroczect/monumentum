@@ -18,4 +18,5 @@ pub trait StorageEngine {
     ) -> Result<(), DbError>;
     fn replace_rows(&mut self, table: &str, rows: Vec<Row>) -> Result<(), DbError>;
     fn checkpoint(&mut self) -> Result<(), DbError>;
+    fn get_row_by_key(&mut self, table: &str, key: &Value) -> Result<Option<Row>, DbError>;
 }
