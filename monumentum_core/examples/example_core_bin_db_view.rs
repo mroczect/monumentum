@@ -114,7 +114,7 @@ fn get_row_by_index(
 fn handle_command(storage: &mut FileStorage, cmd: &str) -> Result<bool, Box<dyn Error>> {
     let parts: Vec<&str> = cmd.split_whitespace().collect();
     let command = parts.first().ok_or("Empty command")?;
-    if *command == "" {
+    if command.is_empty() {
         return Ok(true);
     }
 
