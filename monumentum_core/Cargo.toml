@@ -17,3 +17,6 @@ monumentum_handler = { path = "../monumentum_handler" }
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+proptest = "1.11.0"
