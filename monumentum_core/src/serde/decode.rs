@@ -116,11 +116,18 @@ impl Decode for Table {
         let schema = TableSchema::decode(cursor)?;
         let read_only = bool::decode(cursor)?;
         let data_page_id = Option::<u32>::decode(cursor)?;
+        let index_root_page_id = Option::<u32>::decode(cursor)?;
+        let next_row_id = u64::decode(cursor)?;
+
         let mut table = Self::new(schema);
         table.set_read_only(read_only);
         if let Some(id) = data_page_id {
             table.set_data_page_id(id);
         }
+        if let Some(id) = index_root_page_id {
+            table.set_index_root_page_id(id);
+        }
+        table.set_next_row_id(next_row_id);
         Ok(table)
     }
 }
