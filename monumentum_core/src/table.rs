@@ -5,6 +5,7 @@ use monumentum_handler::error::DbError;
 pub struct Table {
     schema: TableSchema,
     read_only: bool,
+    data_page_id: Option<u32>,
 }
 
 impl Table {
@@ -13,6 +14,7 @@ impl Table {
         Self {
             schema,
             read_only: false,
+            data_page_id: None,
         }
     }
 
@@ -34,5 +36,14 @@ impl Table {
 
     pub const fn set_read_only(&mut self, value: bool) {
         self.read_only = value;
+    }
+
+    #[must_use]
+    pub const fn data_page_id(&self) -> Option<u32> {
+        self.data_page_id
+    }
+
+    pub const fn set_data_page_id(&mut self, id: u32) {
+        self.data_page_id = Some(id);
     }
 }
