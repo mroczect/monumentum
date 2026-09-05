@@ -1,61 +1,118 @@
-use fs2 as _;
-use monumentum_core::catalog::Catalog;
-use monumentum_core::serde::{decode_catalog, encode_catalog};
+#![allow(unused_crate_dependencies)]
+
 use monumentum_core::store::storage::FileStorage;
+use monumentum_handler::core::row::Row;
 use monumentum_handler::core::schema::column::{ColumnDef, DataType};
 use monumentum_handler::core::schema::table_schema::TableSchema;
+use monumentum_handler::core::value::Value;
+use monumentum_handler::traits::StorageEngine;
+use std::fs;
+use std::path::PathBuf;
+use std::time::{SystemTime, UNIX_EPOCH};
 
-#[test]
-fn full_workflow_in_memory() {
-    let mut cat = Catalog::new();
-    let schema_result = TableSchema::try_new(
+fn temp_db_path() -> PathBuf {
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| d.as_nanos());
+    std::env::temp_dir().join(format!(
+        "monumentum_integration_{}_{}.db",
+        std::process::id(),
+        nanos
+    ))
+}
+
+fn make_schema() -> TableSchema {
+    let result = TableSchema::try_new(
         "users",
         vec![
             ColumnDef::new("id", DataType::Integer),
             ColumnDef::new("name", DataType::Text),
         ],
     );
-    let Ok(schema) = schema_result else { return };
-    assert!(cat.create_table(schema).is_ok());
-
-    let encode_result = encode_catalog(&cat);
-    let Ok(bytes) = encode_result else { return };
-    let decode_result = decode_catalog(&bytes);
-    let Ok(decoded) = decode_result else { return };
-    assert_eq!(cat, decoded);
+    assert!(result.is_ok());
+    result.unwrap_or_else(|_| unreachable!())
 }
 
 #[test]
-fn file_storage_roundtrip_with_wal() {
-    use std::env;
-    let mut dir = env::temp_dir();
-    dir.push(format!("monumentum_int_{}", std::process::id()));
-    let _ = std::fs::create_dir(&dir);
-    let path = dir.join("db.monumentum");
+fn test_file_storage_full_workflow() {
+    let path = temp_db_path();
+    let storage_result = FileStorage::open(&path, 10);
+    assert!(storage_result.is_ok());
+    if let Ok(mut storage) = storage_result {
+        let schema = make_schema();
+        let create_result = storage.create_table(schema);
+        assert!(create_result.is_ok());
+
+        let row = Row::new(vec![
+            Value::from(1i64),
+            Value::from(
+                monumentum_handler::types::Text::try_new("Alice".to_string())
+                    .unwrap_or_else(|_| unreachable!()),
+            ),
+        ]);
+        let insert_result = storage.insert_row("users", &row);
+        assert!(insert_result.is_ok());
+
+        let get_result = storage.get_row("users", 0);
+        assert!(get_result.is_ok());
+        if let Ok(Some(retrieved)) = get_result {
+            assert_eq!(retrieved, row);
+        } else {
+            unreachable!("expected row");
+        }
+
+        let checkpoint = storage.checkpoint();
+        assert!(checkpoint.is_ok());
+
+        let drop_result = storage.drop_table("users");
+        assert!(drop_result.is_ok());
+    }
+    let _ = fs::remove_file(&path);
+    let wal_path = path.with_extension("wal");
+    let _ = fs::remove_file(&wal_path);
+}
+
+#[test]
+fn test_file_storage_reopen_persists_data() {
+    let path = temp_db_path();
+    let schema = make_schema();
+    let row = Row::new(vec![
+        Value::from(1i64),
+        Value::from(
+            monumentum_handler::types::Text::try_new("Bob".to_string())
+                .unwrap_or_else(|_| unreachable!()),
+        ),
+    ]);
 
     {
         let storage_result = FileStorage::open(&path, 10);
-        let Ok(mut storage) = storage_result else {
-            return;
-        };
-        let mut cat = Catalog::new();
-        let schema_result =
-            TableSchema::try_new("t", vec![ColumnDef::new("id", DataType::Integer)]);
-        let Ok(schema) = schema_result else { return };
-        assert!(cat.create_table(schema).is_ok());
-        assert!(storage.save_catalog(&cat).is_ok());
-        assert!(storage.close().is_ok());
+        assert!(storage_result.is_ok());
+        if let Ok(mut storage) = storage_result {
+            let create_result = storage.create_table(schema);
+            assert!(create_result.is_ok());
+            let insert_result = storage.insert_row("users", &row);
+            assert!(insert_result.is_ok());
+            let checkpoint = storage.checkpoint();
+            assert!(checkpoint.is_ok());
+            let close = storage.close();
+            assert!(close.is_ok());
+        }
     }
 
     {
         let storage_result = FileStorage::open(&path, 10);
-        let Ok(storage) = storage_result else {
-            return;
-        };
-        let loaded_catalog = storage.get_catalog();
-        assert!(loaded_catalog.get_table("t").is_some());
-        assert!(storage.close().is_ok());
+        assert!(storage_result.is_ok());
+        if let Ok(mut storage) = storage_result {
+            let get_result = storage.get_row("users", 0);
+            assert!(get_result.is_ok());
+            if let Ok(Some(retrieved)) = get_result {
+                assert_eq!(retrieved, row);
+            } else {
+                unreachable!("expected row after reopen");
+            }
+        }
     }
-
-    let _ = std::fs::remove_dir_all(&dir);
+    let _ = fs::remove_file(&path);
+    let wal_path = path.with_extension("wal");
+    let _ = fs::remove_file(&wal_path);
 }
