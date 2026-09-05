@@ -1,15 +1,14 @@
 use super::{Decode, FORMAT_VERSION};
 use crate::catalog::Catalog;
 use crate::table::Table;
+use monumentum_handler::core::row::Row;
 use monumentum_handler::{
     Value,
-    core::row::Row,
     core::schema::column::{CheckConstraint, ColumnDef, ComparisonOp, DataType, ForeignKey},
     core::schema::table_schema::TableSchema,
     error::DbError,
 };
 use std::io::Cursor;
-
 impl Decode for DataType {
     fn decode(cursor: &mut Cursor<&[u8]>) -> Result<Self, DbError> {
         let tag = u8::decode(cursor)?;
@@ -112,39 +111,11 @@ impl Decode for TableSchema {
     }
 }
 
-impl Decode for Row {
-    fn decode(cursor: &mut Cursor<&[u8]>) -> Result<Self, DbError> {
-        let value_count = u32::decode(cursor)? as usize;
-        if value_count > monumentum_handler::constants::MAX_COLUMNS {
-            return Err(DbError::corruption(std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
-                "too many values in row",
-            )));
-        }
-        let mut values = Vec::with_capacity(value_count);
-        for _ in 0..value_count {
-            values.push(Value::decode(cursor)?);
-        }
-        Ok(Self::new(values))
-    }
-}
-
 impl Decode for Table {
     fn decode(cursor: &mut Cursor<&[u8]>) -> Result<Self, DbError> {
         let schema = TableSchema::decode(cursor)?;
         let read_only = bool::decode(cursor)?;
-        let row_count = u32::decode(cursor)? as usize;
-        if row_count > monumentum_handler::constants::MAX_ROWS_PER_TABLE {
-            return Err(DbError::corruption(std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
-                "too many rows",
-            )));
-        }
         let mut table = Self::new(schema);
-        for _ in 0..row_count {
-            let row = Row::decode(cursor)?;
-            table.insert(&row).map_err(DbError::corruption)?;
-        }
         table.set_read_only(read_only);
         Ok(table)
     }
@@ -176,5 +147,22 @@ impl Decode for Catalog {
                 .ok_or_else(|| DbError::table_not_found(&name))? = table;
         }
         Ok(catalog)
+    }
+}
+
+impl Decode for Row {
+    fn decode(cursor: &mut Cursor<&[u8]>) -> Result<Self, DbError> {
+        let value_count = u32::decode(cursor)? as usize;
+        if value_count > monumentum_handler::constants::MAX_COLUMNS {
+            return Err(DbError::corruption(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "too many values in row",
+            )));
+        }
+        let mut values = Vec::with_capacity(value_count);
+        for _ in 0..value_count {
+            values.push(Value::decode(cursor)?);
+        }
+        Ok(Self::new(values))
     }
 }
