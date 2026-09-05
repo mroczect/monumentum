@@ -5,24 +5,13 @@ use monumentum_handler::error::DbError;
 
 const MAX_KEYS_PER_NODE: usize = 100;
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BTreeOnDisk {
-    buffer_pool: BufferPool,
     root_page_id: u32,
 }
 
-#[derive(Debug)]
-struct Node {
-    page_id: u32,
-    is_leaf: bool,
-    parent_page_id: u32,
-    keys: Vec<IndexKey>,
-    values: Vec<u64>,
-    children: Vec<u32>,
-}
-
 impl BTreeOnDisk {
-    pub fn new(mut buffer_pool: BufferPool) -> Result<Self, DbError> {
+    pub fn create(buffer_pool: &mut BufferPool) -> Result<Self, DbError> {
         let root_page_id = buffer_pool.allocate_page(PageType::Index)?;
         {
             let page = buffer_pool.get_page(root_page_id)?;
@@ -32,27 +21,42 @@ impl BTreeOnDisk {
             page.data[3..7].copy_from_slice(&u32::MAX.to_le_bytes());
         }
         buffer_pool.unpin_page(root_page_id, true)?;
-
-        Ok(Self {
-            buffer_pool,
-            root_page_id,
-        })
+        Ok(Self { root_page_id })
     }
 
-    pub fn lookup(&mut self, key: &IndexKey) -> Result<Option<u64>, DbError> {
-        let mut node = self.load_node(self.root_page_id)?;
+    #[must_use]
+    pub const fn root_page_id(&self) -> u32 {
+        self.root_page_id
+    }
+
+    pub fn insert_static(
+        buffer_pool: &mut BufferPool,
+        root_page_id: &mut u32,
+        key: IndexKey,
+        value: u64,
+    ) -> Result<(), DbError> {
+        let root = Self::load_node(buffer_pool, *root_page_id)?;
+        if root.keys.len() >= MAX_KEYS_PER_NODE {
+            Self::split_root(buffer_pool, root_page_id)?;
+        }
+        Self::insert_non_full(buffer_pool, *root_page_id, key, value)
+    }
+
+    pub fn lookup_static(
+        buffer_pool: &mut BufferPool,
+        root_page_id: u32,
+        key: &IndexKey,
+    ) -> Result<Option<u64>, DbError> {
+        let mut node = Self::load_node(buffer_pool, root_page_id)?;
         loop {
             if node.is_leaf {
                 return match node.keys.binary_search(key) {
-                    Ok(idx) => {
-                        let value = node.values.get(idx).ok_or_else(|| {
-                            DbError::corruption(std::io::Error::new(
-                                std::io::ErrorKind::InvalidData,
-                                "value missing at index",
-                            ))
-                        })?;
-                        Ok(Some(*value))
-                    }
+                    Ok(idx) => node.values.get(idx).copied().map(Some).ok_or_else(|| {
+                        DbError::corruption(std::io::Error::new(
+                            std::io::ErrorKind::InvalidData,
+                            "value missing at index",
+                        ))
+                    }),
                     Err(_) => Ok(None),
                 };
             }
@@ -64,40 +68,36 @@ impl BTreeOnDisk {
                     "child page missing",
                 ))
             })?;
-            node = self.load_node(child_page_id)?;
+            node = Self::load_node(buffer_pool, child_page_id)?;
         }
     }
 
-    pub fn insert(&mut self, key: IndexKey, value: u64) -> Result<(), DbError> {
-        let root = self.load_node(self.root_page_id)?;
-        if root.keys.len() >= MAX_KEYS_PER_NODE {
-            self.split_root()?;
-        }
-        self.insert_non_full(self.root_page_id, key, value)
-    }
-
-    fn split_root(&mut self) -> Result<(), DbError> {
-        let new_root_page_id = self.allocate_node(false)?;
-        let old_root_page_id = self.root_page_id;
+    fn split_root(buffer_pool: &mut BufferPool, root_page_id: &mut u32) -> Result<(), DbError> {
+        let new_root_page_id = Self::allocate_node(buffer_pool, false)?;
+        let old_root_page_id = *root_page_id;
 
         {
-            let mut new_root = self.load_node(new_root_page_id)?;
+            let mut new_root = Self::load_node(buffer_pool, new_root_page_id)?;
             new_root.children.push(old_root_page_id);
-            self.save_node(&new_root)?;
+            Self::save_node(buffer_pool, &new_root)?;
         }
 
-        self.split_child(new_root_page_id, 0)?;
-        self.root_page_id = new_root_page_id;
+        Self::split_child(buffer_pool, new_root_page_id, 0)?;
+        *root_page_id = new_root_page_id;
         Ok(())
     }
 
-    fn split_child(&mut self, parent_page_id: u32, child_idx: usize) -> Result<(), DbError> {
-        let mut parent = self.load_node(parent_page_id)?;
+    fn split_child(
+        buffer_pool: &mut BufferPool,
+        parent_page_id: u32,
+        child_idx: usize,
+    ) -> Result<(), DbError> {
+        let mut parent = Self::load_node(buffer_pool, parent_page_id)?;
         let child_page_id = *parent
             .children
             .get(child_idx)
             .ok_or_else(|| DbError::invalid_operation("child index out of bounds"))?;
-        let mut child = self.load_node(child_page_id)?;
+        let mut child = Self::load_node(buffer_pool, child_page_id)?;
 
         let mid = child.keys.len() / 2;
         let mid_key = child
@@ -106,8 +106,8 @@ impl BTreeOnDisk {
             .ok_or_else(|| DbError::invalid_operation("mid key missing"))?
             .clone();
 
-        let new_child_page_id = self.allocate_node(child.is_leaf)?;
-        let mut new_child = self.load_node(new_child_page_id)?;
+        let new_child_page_id = Self::allocate_node(buffer_pool, child.is_leaf)?;
+        let mut new_child = Self::load_node(buffer_pool, new_child_page_id)?;
         new_child.is_leaf = child.is_leaf;
         new_child.parent_page_id = parent_page_id;
 
@@ -128,14 +128,19 @@ impl BTreeOnDisk {
         parent.keys.insert(child_idx, mid_key);
         parent.children.insert(insert_pos, new_child_page_id);
 
-        self.save_node(&child)?;
-        self.save_node(&new_child)?;
-        self.save_node(&parent)?;
+        Self::save_node(buffer_pool, &child)?;
+        Self::save_node(buffer_pool, &new_child)?;
+        Self::save_node(buffer_pool, &parent)?;
         Ok(())
     }
 
-    fn insert_non_full(&mut self, page_id: u32, key: IndexKey, value: u64) -> Result<(), DbError> {
-        let mut node = self.load_node(page_id)?;
+    fn insert_non_full(
+        buffer_pool: &mut BufferPool,
+        page_id: u32,
+        key: IndexKey,
+        value: u64,
+    ) -> Result<(), DbError> {
+        let mut node = Self::load_node(buffer_pool, page_id)?;
         if node.is_leaf {
             match node.keys.binary_search(&key) {
                 Ok(_) => {
@@ -151,7 +156,7 @@ impl BTreeOnDisk {
                     node.values.insert(idx, value);
                 }
             }
-            self.save_node(&node)?;
+            Self::save_node(buffer_pool, &node)?;
             Ok(())
         } else {
             let idx = node.keys.partition_point(|k| k <= &key);
@@ -159,35 +164,35 @@ impl BTreeOnDisk {
                 .children
                 .get(idx)
                 .ok_or_else(|| DbError::invalid_operation("child index out of bounds"))?;
-            let child = self.load_node(child_page_id)?;
+            let child = Self::load_node(buffer_pool, child_page_id)?;
             if child.keys.len() >= MAX_KEYS_PER_NODE {
-                self.split_child(page_id, idx)?;
-                let parent_after = self.load_node(page_id)?;
+                Self::split_child(buffer_pool, page_id, idx)?;
+                let parent_after = Self::load_node(buffer_pool, page_id)?;
                 let new_idx = parent_after.keys.partition_point(|k| k <= &key);
                 let new_child_page_id = *parent_after.children.get(new_idx).ok_or_else(|| {
                     DbError::invalid_operation("child index out of bounds after split")
                 })?;
-                return self.insert_non_full(new_child_page_id, key, value);
+                return Self::insert_non_full(buffer_pool, new_child_page_id, key, value);
             }
-            self.insert_non_full(child_page_id, key, value)
+            Self::insert_non_full(buffer_pool, child_page_id, key, value)
         }
     }
 
-    fn allocate_node(&mut self, is_leaf: bool) -> Result<u32, DbError> {
-        let page_id = self.buffer_pool.allocate_page(PageType::Index)?;
+    fn allocate_node(buffer_pool: &mut BufferPool, is_leaf: bool) -> Result<u32, DbError> {
+        let page_id = buffer_pool.allocate_page(PageType::Index)?;
         {
-            let page = self.buffer_pool.get_page(page_id)?;
+            let page = buffer_pool.get_page(page_id)?;
             page.header.page_type = PageType::Index;
             page.data[0] = u8::from(is_leaf);
             page.data[1..3].copy_from_slice(&0u16.to_le_bytes());
             page.data[3..7].copy_from_slice(&u32::MAX.to_le_bytes());
         }
-        self.buffer_pool.unpin_page(page_id, true)?;
+        buffer_pool.unpin_page(page_id, true)?;
         Ok(page_id)
     }
 
-    fn load_node(&mut self, page_id: u32) -> Result<Node, DbError> {
-        let page = self.buffer_pool.get_page(page_id)?;
+    fn load_node(buffer_pool: &mut BufferPool, page_id: u32) -> Result<Node, DbError> {
+        let page = buffer_pool.get_page(page_id)?;
         let is_leaf = page.data[0] == 1;
         let num_keys = u16::from_le_bytes([page.data[1], page.data[2]]) as usize;
         let parent_page_id = u32::from_le_bytes(
@@ -241,7 +246,7 @@ impl BTreeOnDisk {
             children.push(last_child);
         }
 
-        self.buffer_pool.unpin_page(page_id, false)?;
+        buffer_pool.unpin_page(page_id, false)?;
         Ok(Node {
             page_id,
             is_leaf,
@@ -252,8 +257,8 @@ impl BTreeOnDisk {
         })
     }
 
-    fn save_node(&mut self, node: &Node) -> Result<(), DbError> {
-        let page = self.buffer_pool.get_page(node.page_id)?;
+    fn save_node(buffer_pool: &mut BufferPool, node: &Node) -> Result<(), DbError> {
+        let page = buffer_pool.get_page(node.page_id)?;
         page.header.page_type = PageType::Index;
         page.data.fill(0);
         page.data[0] = u8::from(node.is_leaf);
@@ -289,9 +294,19 @@ impl BTreeOnDisk {
             cursor.write_u32(last_child)?;
         }
 
-        self.buffer_pool.unpin_page(node.page_id, true)?;
+        buffer_pool.unpin_page(node.page_id, true)?;
         Ok(())
     }
+}
+
+#[derive(Debug)]
+struct Node {
+    page_id: u32,
+    is_leaf: bool,
+    parent_page_id: u32,
+    keys: Vec<IndexKey>,
+    values: Vec<u64>,
+    children: Vec<u32>,
 }
 
 struct NodeCursor<'a> {
@@ -489,23 +504,25 @@ mod tests {
     fn test_btree_insert_and_lookup() -> Result<(), DbError> {
         let path = temp_db_path();
         let pager = Pager::open(&path)?;
-        let buffer_pool = BufferPool::new(pager, 10)?;
-        let mut btree = BTreeOnDisk::new(buffer_pool)?;
+        let mut buffer_pool = BufferPool::new(pager, 10)?;
+        let btree = BTreeOnDisk::create(&mut buffer_pool)?;
+        let mut root_id = btree.root_page_id();
 
         for i in 0..10_i64 {
             let key = IndexKey::Integer(i);
             let value = to_u64(i)?;
-            btree.insert(key, value)?;
+            BTreeOnDisk::insert_static(&mut buffer_pool, &mut root_id, key, value)?;
         }
 
         for i in 0..10_i64 {
             let key = IndexKey::Integer(i);
             let value = to_u64(i)?;
-            let result = btree.lookup(&key)?;
+            let result = BTreeOnDisk::lookup_static(&mut buffer_pool, root_id, &key)?;
             assert_eq!(result, Some(value));
         }
 
-        let missing = btree.lookup(&IndexKey::Integer(99_i64))?;
+        let missing =
+            BTreeOnDisk::lookup_static(&mut buffer_pool, root_id, &IndexKey::Integer(99))?;
         assert_eq!(missing, None);
 
         let _ = fs::remove_file(&path);
@@ -516,19 +533,20 @@ mod tests {
     fn test_btree_large_insert_causes_split() -> Result<(), DbError> {
         let path = temp_db_path();
         let pager = Pager::open(&path)?;
-        let buffer_pool = BufferPool::new(pager, 50)?;
-        let mut btree = BTreeOnDisk::new(buffer_pool)?;
+        let mut buffer_pool = BufferPool::new(pager, 50)?;
+        let btree = BTreeOnDisk::create(&mut buffer_pool)?;
+        let mut root_id = btree.root_page_id();
 
         for i in 0..150_i64 {
             let key = IndexKey::Integer(i);
             let value = to_u64(i)?;
-            btree.insert(key, value)?;
+            BTreeOnDisk::insert_static(&mut buffer_pool, &mut root_id, key, value)?;
         }
 
         for i in 0..150_i64 {
             let key = IndexKey::Integer(i);
             let value = to_u64(i)?;
-            let result = btree.lookup(&key)?;
+            let result = BTreeOnDisk::lookup_static(&mut buffer_pool, root_id, &key)?;
             assert_eq!(result, Some(value));
         }
 
