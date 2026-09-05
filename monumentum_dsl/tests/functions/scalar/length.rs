@@ -1,7 +1,10 @@
+#![allow(clippy::all)]
 use monumentum_dsl::LengthFunction;
 use monumentum_handler::core::value::Value;
 use monumentum_handler::error::DbError;
 
+use monumentum_dsl::ScalarFunction;
+use monumentum_handler::MonumentumError;
 #[test]
 fn test_length_text() -> Result<(), DbError> {
     let f = LengthFunction;
@@ -25,7 +28,10 @@ fn test_length_missing_arg() -> Result<(), DbError> {
     let result = f.call(&[]);
     assert!(result.is_err());
     if let Err(e) = result {
-        assert_eq!(e.kind(), monumentum_handler::error::ErrorKind::InvalidOperation);
+        assert_eq!(
+            e.kind(),
+            monumentum_handler::error::ErrorKind::InvalidOperation
+        );
     }
     Ok(())
 }
