@@ -82,7 +82,8 @@ impl Encode for TableSchema {
 impl Encode for Table {
     fn encode(&self, buf: &mut Vec<u8>) -> Result<(), DbError> {
         self.schema().encode(buf)?;
-        self.is_read_only().encode(buf)
+        self.is_read_only().encode(buf)?;
+        self.data_page_id().encode(buf)
     }
 }
 
