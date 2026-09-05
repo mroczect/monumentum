@@ -1,22 +1,9 @@
+use alloc::boxed::Box;
 use alloc::collections::BTreeMap;
+use alloc::vec::Vec;
 use core::fmt;
-use monumentum_handler::core::value::Value;
-use monumentum_handler::error::DbError;
 
-pub trait ScalarFunction: Send + Sync {
-    fn name(&self) -> &str;
-    fn call(&self, args: &[Value]) -> Result<Value, DbError>;
-}
-
-pub trait AggregateFunction: Send + Sync {
-    fn name(&self) -> &str;
-    fn init(&self) -> Box<dyn Accumulator>;
-}
-
-pub trait Accumulator: Send + Sync {
-    fn update(&mut self, value: &Value) -> Result<(), DbError>;
-    fn finish(self: Box<Self>) -> Result<Value, DbError>;
-}
+use super::{AggregateFunction, ScalarFunction};
 
 #[derive(Default)]
 pub struct FunctionRegistry {
@@ -27,7 +14,17 @@ pub struct FunctionRegistry {
 impl FunctionRegistry {
     #[must_use]
     pub fn new() -> Self {
-        Self::default()
+        let mut registry = Self::default();
+        registry.register_scalar(Box::new(super::UpperFunction));
+        registry.register_scalar(Box::new(super::LowerFunction));
+        registry.register_scalar(Box::new(super::LengthFunction));
+        registry.register_scalar(Box::new(super::ConcatFunction));
+        registry.register_aggregate(Box::new(super::CountFunction));
+        registry.register_aggregate(Box::new(super::SumFunction));
+        registry.register_aggregate(Box::new(super::AvgFunction));
+        registry.register_aggregate(Box::new(super::MinFunction));
+        registry.register_aggregate(Box::new(super::MaxFunction));
+        registry
     }
 
     pub fn register_scalar(&mut self, f: Box<dyn ScalarFunction>) {

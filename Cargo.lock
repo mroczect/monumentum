@@ -117,6 +117,7 @@ version = "0.1.0"
 dependencies = [
  "monumentum_core",
  "monumentum_handler",
+ "tempfile",
 ]
 
 [[package]]

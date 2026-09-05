@@ -1,4 +1,3 @@
-use core::error::Error;
 use monumentum_core::store::storage::FileStorage;
 use monumentum_dsl::QueryBuilder;
 use monumentum_handler::core::row::Row;
@@ -7,11 +6,13 @@ use monumentum_handler::core::schema::table_schema::TableSchema;
 use monumentum_handler::core::value::Value;
 use monumentum_handler::error::DbError;
 use monumentum_handler::traits::StorageEngine;
+use tempfile::tempdir;
 
-fn main() -> Result<(), Box<dyn Error>> {
-    let path = std::env::temp_dir().join("full_query.db");
+fn setup_storage(label: &str) -> Result<(FileStorage, tempfile::TempDir), DbError> {
+    let dir = tempdir().map_err(DbError::from_io)?;
+    let path = dir.path().join(format!("{label}.db"));
+
     let mut storage = FileStorage::open(&path, 10)?;
-
     let schema = TableSchema::try_new(
         "users",
         vec![
@@ -31,7 +32,14 @@ fn main() -> Result<(), Box<dyn Error>> {
         storage.insert_row("users", &row)?;
     }
 
-    let names: Vec<Value> = QueryBuilder::new(&mut storage, "users")
+    Ok((storage, dir))
+}
+
+#[test]
+fn test_filter_sort_limit() -> Result<(), DbError> {
+    let (mut storage, _dir) = setup_storage("filter_sort_limit")?;
+
+    let rows = QueryBuilder::new(&mut storage, "users")
         .filter(|row| {
             let age = row
                 .get(2)
@@ -45,6 +53,32 @@ fn main() -> Result<(), Box<dyn Error>> {
             let age_b = b.get(2).and_then(Value::as_i64).unwrap_or(0);
             age_b.cmp(&age_a)
         })
+        .limit(3)
+        .execute()?;
+
+    assert_eq!(rows.len(), 3);
+    let first = rows
+        .first()
+        .ok_or_else(|| DbError::invalid_operation("expected at least one row"))?;
+    assert_eq!(first.get(2).and_then(Value::as_i64), Some(29));
+
+    // The temp directory is automatically removed when `_dir` goes out of scope.
+    Ok(())
+}
+
+#[test]
+fn test_project() -> Result<(), DbError> {
+    let (mut storage, _dir) = setup_storage("project")?;
+
+    let names = QueryBuilder::new(&mut storage, "users")
+        .filter(|row| {
+            let age = row
+                .get(2)
+                .ok_or_else(|| DbError::type_mismatch("missing age"))?
+                .as_i64()
+                .ok_or_else(|| DbError::type_mismatch("expected integer"))?;
+            Ok(age >= 25)
+        })
         .project(|row| {
             let name = row
                 .get(1)
@@ -52,14 +86,10 @@ fn main() -> Result<(), Box<dyn Error>> {
                 .clone();
             Ok(name)
         })?
-        .limit(3)
+        .limit(5)
         .execute()?;
 
-    for name in &names {
-        println!("{:?}", name);
-    }
+    assert_eq!(names.len(), 5);
 
-    storage.checkpoint()?;
-    storage.close()?;
     Ok(())
 }
