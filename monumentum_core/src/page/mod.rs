@@ -171,4 +171,20 @@ impl Page {
 
         Ok(Self { header, data })
     }
+
+    #[must_use]
+    pub fn compute_checksum(&self) -> u32 {
+        let mut header = self.header;
+        header.checksum = 0;
+        let header_bytes = header.to_bytes();
+        let mut crc = 0xFFFF_FFFFu32;
+        for &byte in header_bytes.iter().chain(self.data.iter()) {
+            crc ^= u32::from(byte);
+            for _ in 0..8 {
+                let mask = (crc & 1).wrapping_neg();
+                crc = (crc >> 1) ^ (0xEDB8_8320 & mask);
+            }
+        }
+        !crc
+    }
 }
