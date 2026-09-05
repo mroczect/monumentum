@@ -180,6 +180,15 @@ impl BufferPool {
     pub const fn page_count(&self) -> u32 {
         self.pager.page_count()
     }
+
+    #[must_use]
+    pub fn dirty_page_ids(&self) -> Vec<u32> {
+        self.entries
+            .iter()
+            .filter(|(_, entry)| entry.dirty)
+            .map(|(&id, _)| id)
+            .collect()
+    }
 }
 
 #[cfg(test)]
