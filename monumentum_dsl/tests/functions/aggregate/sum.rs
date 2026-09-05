@@ -1,4 +1,6 @@
+#![allow(clippy::all)]
 use monumentum_dsl::{AggregateFunction, SumFunction};
+use monumentum_handler::MonumentumError;
 use monumentum_handler::core::value::Value;
 use monumentum_handler::error::DbError;
 

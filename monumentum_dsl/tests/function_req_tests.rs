@@ -1,8 +1,11 @@
+#![allow(clippy::all)]
+
 use monumentum_core as _;
 use monumentum_dsl::{FunctionRegistry, ScalarFunction};
 use monumentum_handler::core::value::Value;
 use monumentum_handler::error::DbError;
 use tempfile as _;
+mod functions;
 
 #[test]
 fn test_registry_has_builtins() {

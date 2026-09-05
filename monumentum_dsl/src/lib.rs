@@ -9,12 +9,7 @@ mod functions;
 mod macros;
 mod query;
 
-pub use functions::{
-    Accumulator, AggregateFunction, AvgFunction, ConcatFunction, CountFunction, FunctionRegistry,
-    GroupConcatFunction, LengthFunction, LowerFunction, MaxFunction, MedianFunction, MinFunction,
-    PercentileContFunction, PercentileDiscFunction, ScalarFunction, StringAggFunction, SumFunction,
-    TotalFunction, UpperFunction,
-};
+pub use functions::*;
 pub use query::{ProjectedQueryBuilder, QueryBuilder};
 
 pub mod prelude {

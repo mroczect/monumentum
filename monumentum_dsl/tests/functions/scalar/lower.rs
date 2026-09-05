@@ -1,7 +1,9 @@
+#![allow(clippy::all)]
 use monumentum_dsl::LowerFunction;
+use monumentum_dsl::ScalarFunction;
+use monumentum_handler::MonumentumError;
 use monumentum_handler::core::value::Value;
 use monumentum_handler::error::DbError;
-
 #[test]
 fn test_lower_valid_text() -> Result<(), DbError> {
     let f = LowerFunction;
@@ -16,7 +18,10 @@ fn test_lower_missing_arg() -> Result<(), DbError> {
     let result = f.call(&[]);
     assert!(result.is_err());
     if let Err(e) = result {
-        assert_eq!(e.kind(), monumentum_handler::error::ErrorKind::InvalidOperation);
+        assert_eq!(
+            e.kind(),
+            monumentum_handler::error::ErrorKind::InvalidOperation
+        );
     }
     Ok(())
 }

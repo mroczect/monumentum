@@ -1,7 +1,10 @@
+#![allow(clippy::all)]
 use monumentum_dsl::ConcatFunction;
 use monumentum_handler::core::value::Value;
 use monumentum_handler::error::DbError;
 
+use monumentum_dsl::ScalarFunction;
+use monumentum_handler::MonumentumError;
 #[test]
 fn test_concat_two_texts() -> Result<(), DbError> {
     let f = ConcatFunction;
