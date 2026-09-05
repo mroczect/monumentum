@@ -62,7 +62,6 @@ fn test_filter_sort_limit() -> Result<(), DbError> {
         .ok_or_else(|| DbError::invalid_operation("expected at least one row"))?;
     assert_eq!(first.get(2).and_then(Value::as_i64), Some(29));
 
-    // The temp directory is automatically removed when `_dir` goes out of scope.
     Ok(())
 }
 

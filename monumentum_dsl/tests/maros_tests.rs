@@ -30,7 +30,6 @@ fn setup_storage(label: &str) -> Result<(FileStorage, std::path::PathBuf), DbErr
         std::process::id()
     ));
 
-    // Pastikan tidak ada file atau lock tersisa dari run sebelumnya
     let wal_path = path.with_extension("wal");
     let _ = std::fs::remove_file(&path);
     let _ = std::fs::remove_file(wal_path);
