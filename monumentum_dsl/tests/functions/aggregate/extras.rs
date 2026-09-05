@@ -1,10 +1,11 @@
+#![allow(clippy::all)]
 use monumentum_dsl::{
     AggregateFunction, GroupConcatFunction, MedianFunction, PercentileContFunction,
     PercentileDiscFunction, StringAggFunction, TotalFunction,
 };
+use monumentum_handler::MonumentumError;
 use monumentum_handler::core::value::Value;
 use monumentum_handler::error::DbError;
-
 #[test]
 fn test_group_concat_basic() -> Result<(), DbError> {
     let f = GroupConcatFunction::new(",");
@@ -180,7 +181,10 @@ fn test_percentile_invalid_p() -> Result<(), DbError> {
     let result = acc.finish();
     assert!(result.is_err());
     if let Err(e) = result {
-        assert_eq!(e.kind(), monumentum_handler::error::ErrorKind::InvalidOperation);
+        assert_eq!(
+            e.kind(),
+            monumentum_handler::error::ErrorKind::InvalidOperation
+        );
     }
     Ok(())
 }
