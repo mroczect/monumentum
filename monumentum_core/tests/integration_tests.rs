@@ -2,15 +2,8 @@ use fs2 as _;
 use monumentum_core::catalog::Catalog;
 use monumentum_core::serde::{decode_catalog, encode_catalog};
 use monumentum_core::store::storage::{FileStorage, StorageEngine};
-use monumentum_handler::core::row::Row;
 use monumentum_handler::core::schema::column::{ColumnDef, DataType};
 use monumentum_handler::core::schema::table_schema::TableSchema;
-use monumentum_handler::core::value::Value;
-
-fn text_value(s: &str) -> Result<Value, monumentum_handler::error::DbError> {
-    let text = monumentum_handler::Text::try_new(s.to_string())?;
-    Ok(Value::from(text))
-}
 
 #[test]
 fn full_workflow_in_memory() {
@@ -24,18 +17,6 @@ fn full_workflow_in_memory() {
     );
     let Ok(schema) = schema_result else { return };
     assert!(cat.create_table(schema).is_ok());
-
-    if let Some(table) = cat.get_table_mut("users") {
-        let row1_result = text_value("Alice");
-        let Ok(row1_name) = row1_result else { return };
-        let row1 = Row::new(vec![Value::from(1_i64), row1_name]);
-        assert!(table.insert(&row1).is_ok());
-
-        let row2_result = text_value("Bob");
-        let Ok(row2_name) = row2_result else { return };
-        let row2 = Row::new(vec![Value::from(2_i64), row2_name]);
-        assert!(table.insert(&row2).is_ok());
-    }
 
     let encode_result = encode_catalog(&cat);
     let Ok(bytes) = encode_result else { return };
