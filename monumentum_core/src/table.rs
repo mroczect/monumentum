@@ -6,6 +6,8 @@ pub struct Table {
     schema: TableSchema,
     read_only: bool,
     data_page_id: Option<u32>,
+    index_root_page_id: Option<u32>,
+    next_row_id: u64,
 }
 
 impl Table {
@@ -15,6 +17,8 @@ impl Table {
             schema,
             read_only: false,
             data_page_id: None,
+            index_root_page_id: None,
+            next_row_id: 0,
         }
     }
 
@@ -45,5 +49,31 @@ impl Table {
 
     pub const fn set_data_page_id(&mut self, id: u32) {
         self.data_page_id = Some(id);
+    }
+
+    #[must_use]
+    pub const fn index_root_page_id(&self) -> Option<u32> {
+        self.index_root_page_id
+    }
+
+    pub const fn set_index_root_page_id(&mut self, id: u32) {
+        self.index_root_page_id = Some(id);
+    }
+
+    #[must_use]
+    pub const fn next_row_id(&self) -> u64 {
+        self.next_row_id
+    }
+
+    pub const fn set_next_row_id(&mut self, value: u64) {
+        self.next_row_id = value;
+    }
+
+    pub fn increment_next_row_id(&mut self) -> Result<u64, DbError> {
+        let current = self.next_row_id;
+        self.next_row_id = current
+            .checked_add(1)
+            .ok_or_else(|| DbError::invalid_operation("row id overflow"))?;
+        Ok(current)
     }
 }
