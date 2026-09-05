@@ -6,14 +6,19 @@ use monumentum_handler::core::value::Value;
 use monumentum_handler::error::DbError;
 use monumentum_handler::traits::TableStore;
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TableStorage {
-    buffer_pool: BufferPool,
     first_data_page_id: u32,
+}
+impl TableStorage {
+    #[must_use]
+    pub const fn first_data_page_id(&self) -> u32 {
+        self.first_data_page_id
+    }
 }
 
 impl TableStorage {
-    pub fn new(mut buffer_pool: BufferPool) -> Result<Self, DbError> {
+    pub fn new(buffer_pool: &mut BufferPool) -> Result<Self, DbError> {
         let first_page_id = buffer_pool.allocate_page(PageType::Data)?;
         {
             let page = buffer_pool.get_page(first_page_id)?;
@@ -24,17 +29,20 @@ impl TableStorage {
         buffer_pool.unpin_page(first_page_id, true)?;
 
         Ok(Self {
-            buffer_pool,
             first_data_page_id: first_page_id,
         })
     }
 
-    pub fn insert_row(&mut self, row: &Row) -> Result<(), DbError> {
+    pub fn insert_row_static(
+        buffer_pool: &mut BufferPool,
+        first_data_page_id: u32,
+        row: &Row,
+    ) -> Result<(), DbError> {
         let encoded = encode_row(row)?;
-        let mut current_page_id = self.first_data_page_id;
+        let mut current_page_id = first_data_page_id;
 
         loop {
-            let current_page = self.buffer_pool.get_page(current_page_id)?;
+            let current_page = buffer_pool.get_page(current_page_id)?;
             let used_len = Self::get_used_len(current_page)?;
             let free_space = PAGE_BODY_SIZE
                 .checked_sub(DATA_PAGE_HEADER_SIZE)
@@ -58,29 +66,29 @@ impl TableStorage {
                     .ok_or_else(|| DbError::invalid_operation("used_len overflow"))?;
                 Self::set_used_len(current_page, new_used_len)?;
                 let page_id = current_page.header.page_id;
-                self.buffer_pool.unpin_page(page_id, true)?;
+                buffer_pool.unpin_page(page_id, true)?;
                 return Ok(());
             }
 
             let next_page_id = Self::get_next_page_id(current_page)?;
             let current_id = current_page.header.page_id;
-            self.buffer_pool.unpin_page(current_id, false)?;
+            buffer_pool.unpin_page(current_id, false)?;
 
             if next_page_id == 0 {
-                let new_page_id = self.buffer_pool.allocate_page(PageType::Data)?;
+                let new_page_id = buffer_pool.allocate_page(PageType::Data)?;
                 {
-                    let page = self.buffer_pool.get_page(new_page_id)?;
+                    let page = buffer_pool.get_page(new_page_id)?;
                     page.header.page_type = PageType::Data;
                     page.data[0..4].copy_from_slice(&0u32.to_le_bytes());
                     page.data[4..8].copy_from_slice(&0u32.to_le_bytes());
                 }
-                self.buffer_pool.unpin_page(new_page_id, true)?;
+                buffer_pool.unpin_page(new_page_id, true)?;
 
                 {
-                    let prev_page = self.buffer_pool.get_page(current_id)?;
+                    let prev_page = buffer_pool.get_page(current_id)?;
                     prev_page.data[0..4].copy_from_slice(&new_page_id.to_le_bytes());
                 }
-                self.buffer_pool.unpin_page(current_id, true)?;
+                buffer_pool.unpin_page(current_id, true)?;
 
                 current_page_id = new_page_id;
             } else {
@@ -89,12 +97,16 @@ impl TableStorage {
         }
     }
 
-    pub fn get_row(&mut self, row_idx: usize) -> Result<Option<Row>, DbError> {
-        let mut current_page_id = self.first_data_page_id;
+    pub fn get_row_static(
+        buffer_pool: &mut BufferPool,
+        first_data_page_id: u32,
+        row_idx: usize,
+    ) -> Result<Option<Row>, DbError> {
+        let mut current_page_id = first_data_page_id;
         let mut current_row_idx = 0_usize;
 
         loop {
-            let current_page = self.buffer_pool.get_page(current_page_id)?;
+            let current_page = buffer_pool.get_page(current_page_id)?;
             let used_len = Self::get_used_len(current_page)?;
             let mut offset = DATA_PAGE_HEADER_SIZE;
             let end = offset
@@ -133,7 +145,7 @@ impl TableStorage {
                         ))
                     })?;
                     let row = decode_row(row_bytes)?;
-                    self.buffer_pool.unpin_page(current_page_id, false)?;
+                    buffer_pool.unpin_page(current_page_id, false)?;
                     return Ok(Some(row));
                 }
 
@@ -145,13 +157,25 @@ impl TableStorage {
 
             let next_page_id = Self::get_next_page_id(current_page)?;
             let current_id = current_page.header.page_id;
-            self.buffer_pool.unpin_page(current_id, false)?;
+            buffer_pool.unpin_page(current_id, false)?;
 
             if next_page_id == 0 {
                 return Ok(None);
             }
             current_page_id = next_page_id;
         }
+    }
+
+    pub fn insert_row(&mut self, buffer_pool: &mut BufferPool, row: &Row) -> Result<(), DbError> {
+        Self::insert_row_static(buffer_pool, self.first_data_page_id, row)
+    }
+
+    pub fn get_row(
+        &mut self,
+        buffer_pool: &mut BufferPool,
+        row_idx: usize,
+    ) -> Result<Option<Row>, DbError> {
+        Self::get_row_static(buffer_pool, self.first_data_page_id, row_idx)
     }
 
     fn get_next_page_id(page: &crate::page::Page) -> Result<u32, DbError> {
@@ -209,8 +233,10 @@ impl TableStorage {
 }
 
 impl TableStore for TableStorage {
-    fn insert(&mut self, row: &Row) -> Result<(), DbError> {
-        Self::insert_row(self, row)
+    fn insert(&mut self, _row: &Row) -> Result<(), DbError> {
+        Err(DbError::unsupported(
+            "TableStorage::insert requires buffer_pool",
+        ))
     }
 
     fn set_cell(&mut self, _row_idx: usize, _col_idx: usize, _value: Value) -> Result<(), DbError> {
