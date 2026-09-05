@@ -115,8 +115,12 @@ impl Decode for Table {
     fn decode(cursor: &mut Cursor<&[u8]>) -> Result<Self, DbError> {
         let schema = TableSchema::decode(cursor)?;
         let read_only = bool::decode(cursor)?;
+        let data_page_id = Option::<u32>::decode(cursor)?;
         let mut table = Self::new(schema);
         table.set_read_only(read_only);
+        if let Some(id) = data_page_id {
+            table.set_data_page_id(id);
+        }
         Ok(table)
     }
 }

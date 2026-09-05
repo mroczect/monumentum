@@ -75,10 +75,25 @@ impl FileStorage {
             }
             buffer_pool.unpin_page(META_PAGE_ID, true)?;
 
+            let empty_catalog = Catalog::new();
+            let encoded = encode_catalog(&empty_catalog)?;
+            let chunk = encoded.as_slice();
             let page = buffer_pool.get_page(catalog_page_id)?;
             page.header.page_type = PageType::Data;
+            page.data.fill(0);
             page.data[0..4].copy_from_slice(&0u32.to_le_bytes());
-            page.data[4..8].copy_from_slice(&0u32.to_le_bytes());
+            let used_len = u32::try_from(chunk.len()).map_err(|e| {
+                DbError::invalid_operation(format!("catalog chunk length overflow: {e}"))
+            })?;
+            page.data[4..8].copy_from_slice(&used_len.to_le_bytes());
+            let start = CATALOG_PAGE_HEADER_SIZE;
+            let end = start
+                .checked_add(chunk.len())
+                .ok_or_else(|| DbError::invalid_operation("catalog chunk too large"))?;
+            page.data
+                .get_mut(start..end)
+                .ok_or_else(|| DbError::invalid_operation("catalog chunk does not fit"))?
+                .copy_from_slice(chunk);
             buffer_pool.unpin_page(catalog_page_id, true)?;
 
             Ok((0, catalog_page_id, 0))
