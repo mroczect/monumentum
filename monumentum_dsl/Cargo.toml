@@ -1,0 +1,19 @@
+[package]
+name = "monumentum_dsl"
+version = "0.1.0"
+edition = "2024"
+authors = ["mroczect"]
+license = "MIT"
+description = "A type-safe, Rust-native query builder for Monumentum"
+repository = "https://github.com/mroczect/monumentum"
+readme = "README.md"
+keywords = ["database", "query-builder", "monumentum", "rust-native"]
+categories = ["database", "data-structures"]
+rust-version = "1.96"
+
+[dependencies]
+monumentum_handler = { path = "../monumentum_handler" }
+monumentum_core = { path = "../monumentum_core" }
+
+[lints]
+workspace = true
