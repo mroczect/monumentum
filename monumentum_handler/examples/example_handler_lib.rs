@@ -102,13 +102,13 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let mut total_salary = 0.0_f64;
     for row in &rows {
-        let id = row.get(&0).and_then(Value::as_i64).unwrap_or(0);
-        let name = row.get(&1).and_then(Value::as_str).unwrap_or("?");
-        let age = row.get(&2).and_then(Value::as_i64).unwrap_or(0);
-        let salary = row.get(&3).and_then(Value::as_f64).unwrap_or(0.0);
-        let active = row.get(&4).and_then(Value::as_bool).unwrap_or(false);
+        let id = row.get(0).and_then(Value::as_i64).unwrap_or(0);
+        let name = row.get(1).and_then(Value::as_str).unwrap_or("?");
+        let age = row.get(2).and_then(Value::as_i64).unwrap_or(0);
+        let salary = row.get(3).and_then(Value::as_f64).unwrap_or(0.0);
+        let active = row.get(4).and_then(Value::as_bool).unwrap_or(false);
         let bio = row
-            .get(&5)
+            .get(5)
             .and_then(Value::as_blob)
             .map_or_else(|| "NULL".to_string(), |b| format!("{} bytes", b.len()));
 
