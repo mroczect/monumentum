@@ -517,9 +517,9 @@ mod tests {
         let v1 = Value::Integer(Integer::new(10));
         let v2 = Value::Boolean(true);
         let row = Row::new(vec![v1.clone(), v2.clone()]);
-        assert_eq!(row.get(&0usize), Some(&v1));
-        assert_eq!(row.get(&1usize), Some(&v2));
-        assert_eq!(row.get(&2usize), None);
+        assert_eq!(row.get(0usize), Some(&v1));
+        assert_eq!(row.get(1usize), Some(&v2));
+        assert_eq!(row.get(2usize), None);
     }
 
     #[test]
@@ -537,7 +537,7 @@ mod tests {
             Value::Text(text.clone()),
         ]);
         let idx = unwrap_option(schema.column_index("name"));
-        assert_eq!(row.get(&idx), Some(&Value::Text(text)));
+        assert_eq!(row.get(idx), Some(&Value::Text(text)));
     }
 
     #[test]
@@ -922,19 +922,16 @@ mod tests {
             ],
         ));
         assert_eq!(
-            unwrap_option(schema.get_column_by_index(&0usize)).name(),
+            unwrap_option(schema.get_column_by_index(0usize)).name(),
             "id"
         );
         assert_eq!(
-            unwrap_option(schema.get_column_by_index(&1usize)).name(),
+            unwrap_option(schema.get_column_by_index(1usize)).name(),
             "name"
         );
-        assert_eq!(
-            unwrap_option(schema.get_column_by_index(&"name")).name(),
-            "name"
-        );
-        assert!(schema.get_column_by_index(&2usize).is_none());
-        assert!(schema.get_column_by_index(&"missing").is_none());
+        assert_eq!(unwrap_option(schema.get_column("name")).name(), "name");
+        assert!(schema.get_column_by_index(2usize).is_none());
+        assert!(schema.get_column("missing").is_none());
     }
 
     #[test]
@@ -1265,14 +1262,54 @@ mod tests {
         }
     }
     impl StorageEngine for MockStorageEngine {
-        fn load_catalog(&mut self) -> Result<(), DbError> {
-            Ok(())
-        }
-        fn save_catalog(&mut self) -> Result<(), DbError> {
-            Ok(())
-        }
         fn create_table(&mut self, schema: TableSchema) -> Result<(), DbError> {
             self.catalog.push(schema);
+            Ok(())
+        }
+
+        fn drop_table(&mut self, name: &str) -> Result<(), DbError> {
+            if let Some(pos) = self.catalog.iter().position(|s| s.name() == name) {
+                let _ = self.catalog.remove(pos);
+                Ok(())
+            } else {
+                Err(DbError::table_not_found(name))
+            }
+        }
+
+        fn rename_table(&mut self, old_name: &str, new_name: &str) -> Result<(), DbError> {
+            if let Some(pos) = self.catalog.iter().position(|s| s.name() == old_name) {
+                let schema = self.catalog.remove(pos);
+                let new_schema = TableSchema::try_new(new_name, schema.columns().to_vec())?;
+                self.catalog.push(new_schema);
+                Ok(())
+            } else {
+                Err(DbError::table_not_found(old_name))
+            }
+        }
+
+        fn insert_row(&mut self, _table: &str, _row: &Row) -> Result<(), DbError> {
+            Ok(())
+        }
+
+        fn get_row(&self, _table: &str, _row_idx: usize) -> Result<Option<Row>, DbError> {
+            Ok(None)
+        }
+
+        fn set_cell(
+            &mut self,
+            _table: &str,
+            _row_idx: usize,
+            _col_idx: usize,
+            _value: Value,
+        ) -> Result<(), DbError> {
+            Ok(())
+        }
+
+        fn replace_rows(&mut self, _table: &str, _rows: Vec<Row>) -> Result<(), DbError> {
+            Ok(())
+        }
+
+        fn checkpoint(&mut self) -> Result<(), DbError> {
             Ok(())
         }
     }
@@ -1280,14 +1317,29 @@ mod tests {
     #[test]
     fn storage_engine_trait() {
         let mut engine = MockStorageEngine::new();
-        assert!(engine.load_catalog().is_ok());
-        assert!(engine.save_catalog().is_ok());
         let schema = unwrap_result(TableSchema::try_new(
             "t",
             vec![ColumnDef::new("c", DataType::Integer)],
         ));
         assert!(engine.create_table(schema).is_ok());
         assert_eq!(engine.catalog.len(), 1);
+        assert!(engine.drop_table("t").is_ok());
+        assert!(engine.drop_table("t").is_err());
+        assert!(engine.rename_table("nonexistent", "x").is_err());
+
+        let schema2 = unwrap_result(TableSchema::try_new(
+            "old",
+            vec![ColumnDef::new("c", DataType::Integer)],
+        ));
+        assert!(engine.create_table(schema2).is_ok());
+        assert!(engine.rename_table("old", "new").is_ok());
+        assert!(engine.catalog.iter().any(|s| s.name() == "new"));
+
+        assert!(engine.insert_row("t", &Row::new(vec![])).is_ok());
+        assert!(engine.get_row("t", 0).is_ok());
+        assert!(engine.set_cell("t", 0, 0, Value::Null).is_ok());
+        assert!(engine.replace_rows("t", vec![]).is_ok());
+        assert!(engine.checkpoint().is_ok());
     }
 
     struct MockTableStore {
