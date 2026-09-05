@@ -10,13 +10,13 @@ use monumentum_handler::types::{Blob, Text};
 use proptest::prelude::*;
 use proptest::test_runner::TestCaseError;
 
-fn valid_string(max_len: usize) -> impl Strategy<Value = String> {
-    proptest::collection::vec(proptest::char::range('a', 'z'), 0..max_len)
+fn valid_string(min_len: usize, max_len: usize) -> impl Strategy<Value = String> {
+    proptest::collection::vec(proptest::char::range('a', 'z'), min_len..max_len)
         .prop_map(|v| v.into_iter().collect::<String>())
 }
 
 fn valid_text() -> impl Strategy<Value = Text> {
-    valid_string(100).prop_map(|s| Text::try_new(s).unwrap_or_else(|_| unreachable!()))
+    valid_string(0, 100).prop_map(|s| Text::try_new(s).unwrap_or_else(|_| unreachable!()))
 }
 
 fn valid_blob(max_len: usize) -> impl Strategy<Value = Blob> {
@@ -37,6 +37,10 @@ fn valid_value() -> impl Strategy<Value = Value> {
 
 fn valid_row(max_cols: usize) -> impl Strategy<Value = Row> {
     proptest::collection::vec(valid_value(), 1..max_cols).prop_map(Row::new)
+}
+
+fn valid_table_name() -> impl Strategy<Value = String> {
+    valid_string(1, 20)
 }
 
 proptest! {
@@ -62,7 +66,10 @@ proptest! {
     }
 
     #[test]
-    fn prop_catalog_roundtrip(tables in proptest::collection::vec(valid_string(20), 0..5)) {
+    fn prop_catalog_roundtrip(
+        tables in proptest::collection::btree_set(valid_table_name(), 0..5)
+            .prop_map(|set| set.into_iter().collect::<Vec<_>>())
+    ) {
         let mut catalog = Catalog::new();
         for name in tables {
             let schema = TableSchema::try_new(name, vec![ColumnDef::new("id", DataType::Integer)])
