@@ -7,9 +7,6 @@ mod aggregate;
 mod registry;
 mod scalar;
 
-pub use aggregate::{
-    avg::AvgFunction, count::CountFunction, max::MaxFunction, min::MinFunction, sum::SumFunction,
-};
 pub use registry::FunctionRegistry;
 pub use scalar::{
     concat::ConcatFunction, length::LengthFunction, lower::LowerFunction, upper::UpperFunction,
@@ -29,3 +26,15 @@ pub trait Accumulator: Send + Sync {
     fn update(&mut self, value: &Value) -> Result<(), DbError>;
     fn finish(self: Box<Self>) -> Result<Value, DbError>;
 }
+
+pub use aggregate::{
+    avg::AvgFunction,
+    count::CountFunction,
+    extras::{
+        GroupConcatFunction, MedianFunction, PercentileContFunction, PercentileDiscFunction,
+        StringAggFunction, TotalFunction,
+    },
+    max::MaxFunction,
+    min::MinFunction,
+    sum::SumFunction,
+};
