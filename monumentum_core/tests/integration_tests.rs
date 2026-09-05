@@ -22,6 +22,15 @@ fn temp_db_path() -> PathBuf {
     ))
 }
 
+fn make_schema_with_pk() -> TableSchema {
+    let mut id_col = ColumnDef::new("id", DataType::Integer);
+    id_col.set_primary_key(true);
+    let name_col = ColumnDef::new("name", DataType::Text);
+    let result = TableSchema::try_new("users", vec![id_col, name_col]);
+    assert!(result.is_ok());
+    result.unwrap_or_else(|_| unreachable!())
+}
+
 fn make_schema() -> TableSchema {
     let result = TableSchema::try_new(
         "users",
@@ -153,4 +162,38 @@ fn test_crash_recovery_without_checkpoint() {
     let _ = fs::remove_file(&path);
     let wal_path = path.with_extension("wal");
     let _ = fs::remove_file(wal_path);
+}
+
+#[test]
+fn test_primary_key_lookup() {
+    let path = temp_db_path();
+    let schema = make_schema_with_pk();
+    let text_result = Text::try_new("Alice".to_string());
+    assert!(text_result.is_ok());
+    let Ok(text) = text_result else {
+        unreachable!("text creation failed");
+    };
+    let row = Row::new(vec![Value::from(1i64), Value::from(text)]);
+
+    {
+        let storage_result = FileStorage::open(&path, 10);
+        assert!(storage_result.is_ok());
+        if let Ok(mut storage) = storage_result {
+            let create_result = storage.create_table(schema);
+            assert!(create_result.is_ok());
+            let insert_result = storage.insert_row("users", &row);
+            assert!(insert_result.is_ok());
+            let get_by_key = storage.get_row_by_key("users", &Value::from(1i64));
+            assert!(get_by_key.is_ok());
+            if let Ok(Some(retrieved)) = get_by_key {
+                assert_eq!(retrieved, row);
+            } else {
+                unreachable!("expected row by primary key");
+            }
+        }
+    }
+
+    let _ = fs::remove_file(&path);
+    let wal_path = path.with_extension("wal");
+    let _ = fs::remove_file(&wal_path);
 }
