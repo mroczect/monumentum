@@ -1,6 +1,7 @@
 use core::cmp::Ordering;
 use core::fmt;
 use monumentum_handler::core::row::Row;
+use monumentum_handler::core::value::Value;
 use monumentum_handler::error::DbError;
 use monumentum_handler::traits::StorageEngine;
 
@@ -92,6 +93,126 @@ impl<'a> QueryBuilder<'a> {
             items: projected,
             operations: Vec::new(),
         })
+    }
+
+    pub fn aggregate<F>(
+        self,
+        aggregate: &dyn crate::functions::AggregateFunction,
+        extractor: F,
+    ) -> Result<Value, DbError>
+    where
+        F: Fn(&Row) -> Result<Value, DbError> + 'a,
+    {
+        let rows = self.collect_rows()?;
+        let mut acc = aggregate.init();
+        for row in &rows {
+            let value = extractor(row)?;
+            acc.update(&value)?;
+        }
+        acc.finish()
+    }
+
+    pub fn aggregate_by_name<F>(self, name: &str, extractor: F) -> Result<Value, DbError>
+    where
+        F: Fn(&Row) -> Result<Value, DbError> + 'a,
+    {
+        let registry = crate::functions::FunctionRegistry::new();
+        let agg = registry.get_aggregate(name).ok_or_else(|| {
+            DbError::unsupported(format!("aggregate function '{name}' not found"))
+        })?;
+        self.aggregate(agg, extractor)
+    }
+    pub fn group_by<F>(self, key_fn: F) -> Result<Vec<(Value, Vec<Row>)>, DbError>
+    where
+        F: Fn(&Row) -> Result<Value, DbError> + 'a,
+    {
+        let rows = self.collect_rows()?;
+        let mut groups: Vec<(Value, Vec<Row>)> = Vec::new();
+
+        for row in rows {
+            let key = key_fn(&row)?;
+            if let Some((_, group_rows)) = groups
+                .iter_mut()
+                .find(|(existing_key, _)| *existing_key == key)
+            {
+                group_rows.push(row);
+            } else {
+                groups.push((key, alloc::vec![row]));
+            }
+        }
+
+        Ok(groups)
+    }
+
+    pub fn join_inner<LF, RF>(
+        self,
+        right_table: &str,
+        left_key_fn: LF,
+        right_key_fn: RF,
+    ) -> Result<Vec<Row>, DbError>
+    where
+        LF: Fn(&Row) -> Result<Value, DbError> + 'a,
+        RF: Fn(&Row) -> Result<Value, DbError> + 'a,
+    {
+        let right_rows = self.storage.get_all_rows(right_table)?;
+        let left_rows = self.collect_rows()?;
+
+        let mut result = Vec::new();
+
+        for left in &left_rows {
+            let left_key = left_key_fn(left)?;
+            for right in &right_rows {
+                let right_key = right_key_fn(right)?;
+                if left_key == right_key {
+                    let mut combined_values = left.values().to_vec();
+                    combined_values.extend_from_slice(right.values());
+                    result.push(Row::new(combined_values));
+                }
+            }
+        }
+
+        Ok(result)
+    }
+
+    pub fn join_left<LF, RF>(
+        self,
+        right_table: &str,
+        left_key_fn: LF,
+        right_key_fn: RF,
+    ) -> Result<Vec<Row>, DbError>
+    where
+        LF: Fn(&Row) -> Result<Value, DbError> + 'a,
+        RF: Fn(&Row) -> Result<Value, DbError> + 'a,
+    {
+        let right_rows = self.storage.get_all_rows(right_table)?;
+        let left_rows = self.collect_rows()?;
+
+        let mut result = Vec::new();
+
+        for left in &left_rows {
+            let left_key = left_key_fn(left)?;
+            let mut found_match = false;
+
+            for right in &right_rows {
+                let right_key = right_key_fn(right)?;
+                if left_key == right_key {
+                    let mut combined_values = left.values().to_vec();
+                    combined_values.extend_from_slice(right.values());
+                    result.push(Row::new(combined_values));
+                    found_match = true;
+                }
+            }
+
+            if !found_match {
+                let mut combined_values = left.values().to_vec();
+                let extra_len = right_rows.first().map_or(0, Row::len);
+                let new_len = combined_values.len().saturating_add(extra_len);
+                combined_values.resize(new_len, Value::Null);
+                result.push(Row::new(combined_values));
+            }
+        }
+
+        Ok(result)
     }
 
     pub fn execute(self) -> Result<Vec<Row>, DbError> {
