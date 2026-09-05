@@ -11,8 +11,9 @@ mod query;
 
 pub use functions::{
     Accumulator, AggregateFunction, AvgFunction, ConcatFunction, CountFunction, FunctionRegistry,
-    LengthFunction, LowerFunction, MaxFunction, MinFunction, ScalarFunction, SumFunction,
-    UpperFunction,
+    GroupConcatFunction, LengthFunction, LowerFunction, MaxFunction, MedianFunction, MinFunction,
+    PercentileContFunction, PercentileDiscFunction, ScalarFunction, StringAggFunction, SumFunction,
+    TotalFunction, UpperFunction,
 };
 pub use query::{ProjectedQueryBuilder, QueryBuilder};
 
