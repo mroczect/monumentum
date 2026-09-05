@@ -1,5 +1,7 @@
 use crate::buffer_pool::BufferPool;
 use crate::catalog::Catalog;
+use crate::index::btree::BTreeOnDisk;
+use crate::index::key::IndexKey;
 use crate::page::{
     CATALOG_CHUNK_SIZE, CATALOG_PAGE_HEADER_SIZE, META_CATALOG_PAGE_OFFSET,
     META_LAST_CHECKPOINT_LSN_OFFSET, META_LSN_OFFSET, META_PAGE_ID, Page, PageType,
@@ -12,6 +14,7 @@ use crate::table::Table;
 use crate::table_storage::TableStorage;
 use alloc::collections::BTreeMap;
 use monumentum_handler::core::row::Row;
+use monumentum_handler::core::schema::column::ColumnDef;
 use monumentum_handler::core::schema::table_schema::TableSchema;
 use monumentum_handler::core::value::Value;
 use monumentum_handler::error::DbError;
@@ -27,6 +30,7 @@ pub struct FileStorage {
     catalog_page_id: u32,
     last_checkpoint_lsn: u64,
     table_data: BTreeMap<String, TableStorage>,
+    index_data: BTreeMap<String, u32>,
 }
 
 impl FileStorage {
@@ -42,9 +46,14 @@ impl FileStorage {
         let catalog = Self::load_catalog(&mut buffer_pool, catalog_page_id)?;
 
         let mut table_data = BTreeMap::new();
+        let mut index_data = BTreeMap::new();
+
         for (name, table) in catalog.tables() {
             if let Some(id) = table.data_page_id() {
                 let _ = table_data.insert(name.to_string(), TableStorage::from_first_page_id(id));
+            }
+            if let Some(root_id) = table.index_root_page_id() {
+                let _ = index_data.insert(name.to_string(), root_id);
             }
         }
 
@@ -56,6 +65,7 @@ impl FileStorage {
             catalog_page_id,
             last_checkpoint_lsn,
             table_data,
+            index_data,
         };
 
         storage.apply_wal_records()?;
@@ -245,6 +255,12 @@ impl FileStorage {
                     let (lsn, catalog) = decode_snapshot(&record.data)?;
                     self.catalog = catalog;
                     self.current_lsn = lsn;
+                    self.index_data.clear();
+                    for (name, table) in self.catalog.tables() {
+                        if let Some(root_id) = table.index_root_page_id() {
+                            let _ = self.index_data.insert(name.to_string(), root_id);
+                        }
+                    }
                 }
             }
         }
@@ -449,6 +465,12 @@ impl FileStorage {
 
     pub fn save_catalog(&mut self, catalog: &Catalog) -> Result<(), DbError> {
         self.catalog = catalog.clone();
+        self.index_data.clear();
+        for (name, table) in self.catalog.tables() {
+            if let Some(root_id) = table.index_root_page_id() {
+                let _ = self.index_data.insert(name.to_string(), root_id);
+            }
+        }
         self.write_catalog_to_pages(catalog)
     }
 
@@ -461,18 +483,49 @@ impl FileStorage {
     pub fn get_table(&self, name: &str) -> Option<&Table> {
         self.catalog.get_table(name)
     }
+
+    pub fn get_row_by_key(&mut self, table: &str, key: &Value) -> Result<Option<Row>, DbError> {
+        if let Some(&root_id) = self.index_data.get(table)
+            && let Some(index_key) = IndexKey::from_value(key)
+            && let Some(row_idx) =
+                BTreeOnDisk::lookup_static(&mut self.buffer_pool, root_id, &index_key)?
+        {
+            let data_page_id = self
+                .table_data
+                .get(table)
+                .map(TableStorage::first_data_page_id)
+                .ok_or_else(|| DbError::table_not_found(table))?;
+            let row_idx_usize = usize::try_from(row_idx).map_err(|e| {
+                DbError::invalid_operation(format!("row index out of range for platform: {e}"))
+            })?;
+            return TableStorage::get_row_static(
+                &mut self.buffer_pool,
+                data_page_id,
+                row_idx_usize,
+            );
+        }
+        Ok(None)
+    }
 }
 
 impl StorageEngine for FileStorage {
     fn create_table(&mut self, schema: TableSchema) -> Result<(), DbError> {
         let name = schema.name().to_string();
-        self.catalog.create_table(schema)?;
+        self.catalog.create_table(schema.clone())?;
 
         let table_storage = TableStorage::new(&mut self.buffer_pool)?;
         let first_page_id = table_storage.first_data_page_id();
         let _ = self.table_data.insert(name.clone(), table_storage);
 
-        if let Some(table) = self.catalog.get_table_mut(&name) {
+        if schema.columns().iter().any(ColumnDef::is_primary_key) {
+            let btree = BTreeOnDisk::create(&mut self.buffer_pool)?;
+            let root_id = btree.root_page_id();
+            let _ = self.index_data.insert(name.clone(), root_id);
+            if let Some(table) = self.catalog.get_table_mut(&name) {
+                table.set_data_page_id(first_page_id);
+                table.set_index_root_page_id(root_id);
+            }
+        } else if let Some(table) = self.catalog.get_table_mut(&name) {
             table.set_data_page_id(first_page_id);
         }
 
@@ -483,6 +536,7 @@ impl StorageEngine for FileStorage {
     fn drop_table(&mut self, name: &str) -> Result<(), DbError> {
         self.catalog.drop_table(name)?;
         let _ = self.table_data.remove(name);
+        let _ = self.index_data.remove(name);
         let catalog = self.catalog.clone();
         self.write_catalog_to_pages(&catalog)
     }
@@ -492,17 +546,52 @@ impl StorageEngine for FileStorage {
         if let Some(storage) = self.table_data.remove(old_name) {
             let _ = self.table_data.insert(new_name.to_string(), storage);
         }
+        if let Some(root) = self.index_data.remove(old_name) {
+            let _ = self.index_data.insert(new_name.to_string(), root);
+        }
         let catalog = self.catalog.clone();
         self.write_catalog_to_pages(&catalog)
     }
 
     fn insert_row(&mut self, table: &str, row: &Row) -> Result<(), DbError> {
-        let first_page_id = self
+        let schema = self
+            .catalog
+            .get_table(table)
+            .ok_or_else(|| DbError::table_not_found(table))?
+            .schema()
+            .clone();
+        let data_page_id = self
             .table_data
             .get(table)
             .map(TableStorage::first_data_page_id)
             .ok_or_else(|| DbError::table_not_found(table))?;
-        TableStorage::insert_row_static(&mut self.buffer_pool, first_page_id, row)
+
+        let row_idx = {
+            let table_meta = self
+                .catalog
+                .get_table_mut(table)
+                .ok_or_else(|| DbError::table_not_found(table))?;
+            table_meta.increment_next_row_id()?
+        };
+
+        TableStorage::insert_row_static(&mut self.buffer_pool, data_page_id, row)?;
+
+        if let Some(pk_col_idx) = schema.columns().iter().position(ColumnDef::is_primary_key)
+            && let Some(key_val) = row.get(pk_col_idx)
+            && let Some(index_key) = IndexKey::from_value(key_val)
+            && let Some(root_id) = self.index_data.get_mut(table)
+        {
+            let old_root = *root_id;
+            BTreeOnDisk::insert_static(&mut self.buffer_pool, root_id, index_key, row_idx)?;
+            if *root_id != old_root
+                && let Some(table_meta) = self.catalog.get_table_mut(table)
+            {
+                table_meta.set_index_root_page_id(*root_id);
+            }
+        }
+
+        let catalog = self.catalog.clone();
+        self.write_catalog_to_pages(&catalog)
     }
 
     fn get_row(&mut self, table: &str, row_idx: usize) -> Result<Option<Row>, DbError> {
