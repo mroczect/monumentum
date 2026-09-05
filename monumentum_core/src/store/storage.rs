@@ -590,6 +590,11 @@ impl StorageEngine for FileStorage {
             }
         }
 
+        let dirty_pages = self.buffer_pool.dirty_page_ids();
+        for page_id in dirty_pages {
+            self.append_page_write_wal(page_id)?;
+        }
+
         let catalog = self.catalog.clone();
         self.write_catalog_to_pages(&catalog)
     }
