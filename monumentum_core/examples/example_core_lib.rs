@@ -2,7 +2,7 @@ use core::error::Error;
 use fs2 as _;
 use monumentum_core::catalog::Catalog;
 use monumentum_core::serde::{decode_catalog, encode_catalog};
-use monumentum_core::store::storage::{FileStorage, StorageEngine};
+use monumentum_core::store::storage::FileStorage;
 use monumentum_handler::core::schema::column::{ColumnDef, DataType};
 use monumentum_handler::core::schema::table_schema::TableSchema;
 
