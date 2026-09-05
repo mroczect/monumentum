@@ -24,6 +24,12 @@ impl FunctionRegistry {
         registry.register_aggregate(Box::new(super::AvgFunction));
         registry.register_aggregate(Box::new(super::MinFunction));
         registry.register_aggregate(Box::new(super::MaxFunction));
+        registry.register_aggregate(Box::new(super::GroupConcatFunction::default()));
+        registry.register_aggregate(Box::new(super::StringAggFunction::default()));
+        registry.register_aggregate(Box::new(super::TotalFunction));
+        registry.register_aggregate(Box::new(super::MedianFunction));
+        registry.register_aggregate(Box::new(super::PercentileContFunction::new(0.5)));
+        registry.register_aggregate(Box::new(super::PercentileDiscFunction::new(0.5)));
         registry
     }
 
