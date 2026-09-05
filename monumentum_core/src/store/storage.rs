@@ -9,15 +9,12 @@ use crate::serde::{decode_catalog, encode_catalog};
 use crate::store::append_log::WalRecordType;
 use crate::store::wal::Wal;
 use crate::table::Table;
+use monumentum_handler::core::row::Row;
+use monumentum_handler::core::schema::table_schema::TableSchema;
+use monumentum_handler::core::value::Value;
 use monumentum_handler::error::DbError;
+use monumentum_handler::traits::StorageEngine;
 use std::path::Path;
-
-pub trait StorageEngine {
-    fn get_catalog(&self) -> &Catalog;
-    fn save_catalog(&mut self, catalog: &Catalog) -> Result<(), DbError>;
-    fn get_table(&self, name: &str) -> Option<&Table>;
-    fn checkpoint(&mut self) -> Result<(), DbError>;
-}
 
 #[derive(Debug)]
 pub struct FileStorage {
@@ -423,20 +420,62 @@ impl FileStorage {
         self.wal.unlock()?;
         Ok(())
     }
-}
 
-impl StorageEngine for FileStorage {
-    fn get_catalog(&self) -> &Catalog {
-        &self.catalog
-    }
-
-    fn save_catalog(&mut self, catalog: &Catalog) -> Result<(), DbError> {
+    pub fn save_catalog(&mut self, catalog: &Catalog) -> Result<(), DbError> {
         self.catalog = catalog.clone();
         self.write_catalog_to_pages(catalog)
     }
 
-    fn get_table(&self, name: &str) -> Option<&Table> {
+    #[must_use]
+    pub const fn get_catalog(&self) -> &Catalog {
+        &self.catalog
+    }
+
+    #[must_use]
+    pub fn get_table(&self, name: &str) -> Option<&Table> {
         self.catalog.get_table(name)
+    }
+}
+
+impl StorageEngine for FileStorage {
+    fn create_table(&mut self, schema: TableSchema) -> Result<(), DbError> {
+        self.catalog.create_table(schema)?;
+        let catalog = self.catalog.clone();
+        self.write_catalog_to_pages(&catalog)
+    }
+
+    fn drop_table(&mut self, name: &str) -> Result<(), DbError> {
+        self.catalog.drop_table(name)?;
+        let catalog = self.catalog.clone();
+        self.write_catalog_to_pages(&catalog)
+    }
+
+    fn rename_table(&mut self, old_name: &str, new_name: &str) -> Result<(), DbError> {
+        self.catalog.rename_table(old_name, new_name)?;
+        let catalog = self.catalog.clone();
+        self.write_catalog_to_pages(&catalog)
+    }
+
+    fn insert_row(&mut self, _table: &str, _row: &Row) -> Result<(), DbError> {
+        Err(DbError::unsupported("row operations not yet integrated"))
+    }
+
+    fn get_row(&self, _table: &str, _row_idx: usize) -> Result<Option<Row>, DbError> {
+        Err(DbError::unsupported("row operations not yet integrated"))
+    }
+
+    fn set_cell(
+        &mut self,
+        _table: &str,
+        _row_idx: usize,
+        _col_idx: usize,
+        _value: Value,
+    ) -> Result<(), DbError> {
+        Err(DbError::unsupported("row operations not yet integrated"))
+    }
+
+    fn replace_rows(&mut self, _table: &str, _rows: Vec<Row>) -> Result<(), DbError> {
+        Err(DbError::unsupported("row operations not yet integrated"))
     }
 
     fn checkpoint(&mut self) -> Result<(), DbError> {
@@ -454,20 +493,64 @@ impl InMemoryStorage {
     pub fn new() -> Self {
         Self::default()
     }
-}
 
-impl StorageEngine for InMemoryStorage {
-    fn get_catalog(&self) -> &Catalog {
-        &self.catalog
-    }
-
-    fn save_catalog(&mut self, catalog: &Catalog) -> Result<(), DbError> {
+    pub fn save_catalog(&mut self, catalog: &Catalog) -> Result<(), DbError> {
         self.catalog = catalog.clone();
         Ok(())
     }
 
-    fn get_table(&self, name: &str) -> Option<&Table> {
+    #[must_use]
+    pub const fn get_catalog(&self) -> &Catalog {
+        &self.catalog
+    }
+
+    #[must_use]
+    pub fn get_table(&self, name: &str) -> Option<&Table> {
         self.catalog.get_table(name)
+    }
+}
+
+impl StorageEngine for InMemoryStorage {
+    fn create_table(&mut self, schema: TableSchema) -> Result<(), DbError> {
+        self.catalog.create_table(schema)
+    }
+
+    fn drop_table(&mut self, name: &str) -> Result<(), DbError> {
+        self.catalog.drop_table(name)
+    }
+
+    fn rename_table(&mut self, old_name: &str, new_name: &str) -> Result<(), DbError> {
+        self.catalog.rename_table(old_name, new_name)
+    }
+
+    fn insert_row(&mut self, _table: &str, _row: &Row) -> Result<(), DbError> {
+        Err(DbError::unsupported(
+            "row operations not supported in InMemoryStorage",
+        ))
+    }
+
+    fn get_row(&self, _table: &str, _row_idx: usize) -> Result<Option<Row>, DbError> {
+        Err(DbError::unsupported(
+            "row operations not supported in InMemoryStorage",
+        ))
+    }
+
+    fn set_cell(
+        &mut self,
+        _table: &str,
+        _row_idx: usize,
+        _col_idx: usize,
+        _value: Value,
+    ) -> Result<(), DbError> {
+        Err(DbError::unsupported(
+            "row operations not supported in InMemoryStorage",
+        ))
+    }
+
+    fn replace_rows(&mut self, _table: &str, _rows: Vec<Row>) -> Result<(), DbError> {
+        Err(DbError::unsupported(
+            "row operations not supported in InMemoryStorage",
+        ))
     }
 
     fn checkpoint(&mut self) -> Result<(), DbError> {
