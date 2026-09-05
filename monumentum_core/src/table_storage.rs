@@ -2,7 +2,9 @@ use crate::buffer_pool::BufferPool;
 use crate::page::{DATA_PAGE_HEADER_SIZE, PAGE_BODY_SIZE, PageType};
 use crate::serde::{decode_row, encode_row};
 use monumentum_handler::core::row::Row;
+use monumentum_handler::core::value::Value;
 use monumentum_handler::error::DbError;
+use monumentum_handler::traits::TableStore;
 
 #[derive(Debug)]
 pub struct TableStorage {
@@ -203,5 +205,23 @@ impl TableStorage {
             .map_err(|e| DbError::invalid_operation(format!("used_len overflow: {e}")))?;
         page.data[4..8].copy_from_slice(&len_u32.to_le_bytes());
         Ok(())
+    }
+}
+
+impl TableStore for TableStorage {
+    fn insert(&mut self, row: &Row) -> Result<(), DbError> {
+        Self::insert_row(self, row)
+    }
+
+    fn set_cell(&mut self, _row_idx: usize, _col_idx: usize, _value: Value) -> Result<(), DbError> {
+        Err(DbError::unsupported(
+            "set_cell not implemented for TableStorage",
+        ))
+    }
+
+    fn replace_rows(&mut self, _rows: Vec<Row>) -> Result<(), DbError> {
+        Err(DbError::unsupported(
+            "replace_rows not implemented for TableStorage",
+        ))
     }
 }
