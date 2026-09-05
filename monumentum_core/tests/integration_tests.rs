@@ -197,3 +197,82 @@ fn test_primary_key_lookup() {
     let wal_path = path.with_extension("wal");
     let _ = fs::remove_file(&wal_path);
 }
+
+#[test]
+fn test_crash_recovery_for_update_and_replace() {
+    let path = temp_db_path();
+    let schema = make_schema();
+    let text_result = Text::try_new("Alice".to_string());
+    assert!(text_result.is_ok());
+    let Ok(alice) = text_result else {
+        unreachable!("text creation failed");
+    };
+    let row1 = Row::new(vec![Value::from(1i64), Value::from(alice)]);
+
+    {
+        let storage_result = FileStorage::open(&path, 10);
+        assert!(storage_result.is_ok());
+        if let Ok(mut storage) = storage_result {
+            assert!(storage.create_table(schema).is_ok());
+            assert!(storage.insert_row("users", &row1).is_ok());
+
+            let bobby_result = Text::try_new("Bobby".to_string());
+            assert!(bobby_result.is_ok());
+            let Ok(bobby) = bobby_result else {
+                unreachable!("text creation failed");
+            };
+            assert!(storage.set_cell("users", 0, 1, Value::from(bobby)).is_ok());
+
+            let new_row1 = Row::new(vec![Value::from(3i64), Value::Null]);
+            let new_row2 = Row::new(vec![Value::from(4i64), Value::Null]);
+            assert!(
+                storage
+                    .replace_rows("users", vec![new_row1, new_row2])
+                    .is_ok()
+            );
+        }
+    }
+
+    {
+        let storage_result = FileStorage::open(&path, 10);
+        assert!(storage_result.is_ok());
+        if let Ok(mut storage) = storage_result {
+            let get0 = storage.get_row("users", 0);
+            assert!(get0.is_ok());
+            if let Ok(Some(row)) = get0 {
+                assert_eq!(row, Row::new(vec![Value::from(3i64), Value::Null]));
+            } else {
+                unreachable!("expected row 0");
+            }
+
+            let get1 = storage.get_row("users", 1);
+            assert!(get1.is_ok());
+            if let Ok(Some(row)) = get1 {
+                assert_eq!(row, Row::new(vec![Value::from(4i64), Value::Null]));
+            } else {
+                unreachable!("expected row 1");
+            }
+        }
+    }
+
+    let _ = fs::remove_file(&path);
+    let wal_path = path.with_extension("wal");
+    let _ = fs::remove_file(wal_path);
+}
+
+#[test]
+fn test_file_locking_prevents_concurrent_writer() {
+    let path = temp_db_path();
+    let first = FileStorage::open(&path, 10);
+    assert!(first.is_ok());
+
+    let second = FileStorage::open(&path, 10);
+    assert!(second.is_err());
+
+    if let Ok(storage) = first {
+        drop(storage);
+    }
+    let _ = fs::remove_file(&path);
+    let wal_path = path.with_extension("wal");
+    let _ = fs::remove_file(wal_path);
+}

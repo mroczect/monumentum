@@ -758,6 +758,10 @@ impl StorageEngine for FileStorage {
         if let Some(table_meta) = self.catalog.get_table_mut(table) {
             table_meta.set_next_row_id(current_idx);
         }
+        let dirty_pages = self.buffer_pool.dirty_page_ids();
+        for page_id in dirty_pages {
+            self.append_page_write_wal(page_id)?;
+        }
 
         let table_meta = self
             .catalog
@@ -831,7 +835,10 @@ impl StorageEngine for FileStorage {
         if let Some(table_meta) = self.catalog.get_table_mut(table) {
             table_meta.set_next_row_id(current_idx);
         }
-
+        let dirty_pages = self.buffer_pool.dirty_page_ids();
+        for page_id in dirty_pages {
+            self.append_page_write_wal(page_id)?;
+        }
         let table_meta = self
             .catalog
             .get_table(table)

@@ -112,3 +112,49 @@ fn test_pager_detects_corrupt_size() {
     }
     let _ = fs::remove_file(&path);
 }
+
+#[test]
+fn test_pager_detects_checksum_mismatch() {
+    use std::io::{Read, Seek, Write};
+
+    let path = temp_db_path();
+    {
+        let mut pager = Pager::open(&path).unwrap_or_else(|_| unreachable!());
+        let _ = pager
+            .allocate_page(PageType::Data)
+            .unwrap_or_else(|_| unreachable!());
+        let mut page = pager.read_page(0).unwrap_or_else(|_| unreachable!());
+        page.data[0] = 0xAB;
+        pager.write_page(&page).unwrap_or_else(|_| unreachable!());
+    }
+
+    {
+        let mut file = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&path)
+            .unwrap_or_else(|_| unreachable!());
+        let mut buf = [0u8; 1];
+        let _ = file
+            .seek(std::io::SeekFrom::Start(100))
+            .unwrap_or_else(|_| unreachable!());
+        file.read_exact(&mut buf).unwrap_or_else(|_| unreachable!());
+        buf[0] ^= 0xFF;
+        let _ = file
+            .seek(std::io::SeekFrom::Start(100))
+            .unwrap_or_else(|_| unreachable!());
+        file.write_all(&buf).unwrap_or_else(|_| unreachable!());
+    }
+
+    let pager_result = Pager::open(&path);
+    assert!(pager_result.is_ok());
+    if let Ok(mut pager) = pager_result {
+        let read_result = pager.read_page(0);
+        assert!(read_result.is_err());
+        if let Err(e) = read_result {
+            assert!(matches!(e, DbError::Corruption(_)));
+        }
+    }
+
+    let _ = fs::remove_file(&path);
+}
