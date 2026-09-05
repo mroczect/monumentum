@@ -9,3 +9,9 @@ issue*
 /dist
 release*
 !release.json
+
+# Monumentum Development Files Temp
+
+*.monumentum
+*.db
+*.wal
