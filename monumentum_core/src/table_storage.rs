@@ -130,11 +130,10 @@ impl TableStorage {
                     ))
                 })?) as usize;
 
-                let row_start = offset
-                    .checked_add(4)
-                    .ok_or_else(|| DbError::invalid_operation("offset overflow"))?;
+                let row_start = offset;
                 let row_end = row_start
-                    .checked_add(len)
+                    .checked_add(4)
+                    .and_then(|v| v.checked_add(len))
                     .ok_or_else(|| DbError::invalid_operation("offset overflow"))?;
 
                 if current_row_idx == row_idx {
