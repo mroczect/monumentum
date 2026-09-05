@@ -72,6 +72,69 @@ impl BTreeOnDisk {
         }
     }
 
+    pub fn delete_static(
+        buffer_pool: &mut BufferPool,
+        root_page_id: u32,
+        key: &IndexKey,
+    ) -> Result<Option<u64>, DbError> {
+        let mut node = Self::load_node(buffer_pool, root_page_id)?;
+        loop {
+            if node.is_leaf {
+                if let Ok(idx) = node.keys.binary_search(key) {
+                    let value = node.values.get(idx).copied();
+                    let _ = node.keys.remove(idx);
+                    let _ = node.values.remove(idx);
+                    Self::save_node(buffer_pool, &node)?;
+                    return Ok(value);
+                }
+                return Ok(None);
+            }
+            let idx = node.keys.partition_point(|k| k <= key);
+            let child_page_id = *node.children.get(idx).ok_or_else(|| {
+                DbError::corruption(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "child page missing",
+                ))
+            })?;
+            node = Self::load_node(buffer_pool, child_page_id)?;
+        }
+    }
+
+    pub fn range_scan_static(
+        buffer_pool: &mut BufferPool,
+        root_page_id: u32,
+        start: &IndexKey,
+        end: &IndexKey,
+        result: &mut Vec<(IndexKey, u64)>,
+    ) -> Result<(), DbError> {
+        Self::range_scan_recursive(buffer_pool, root_page_id, start, end, result)
+    }
+
+    fn range_scan_recursive(
+        buffer_pool: &mut BufferPool,
+        page_id: u32,
+        start: &IndexKey,
+        end: &IndexKey,
+        result: &mut Vec<(IndexKey, u64)>,
+    ) -> Result<(), DbError> {
+        let node = Self::load_node(buffer_pool, page_id)?;
+        if node.is_leaf {
+            for (i, key) in node.keys.iter().enumerate() {
+                if key >= start
+                    && key < end
+                    && let Some(&value) = node.values.get(i)
+                {
+                    result.push((key.clone(), value));
+                }
+            }
+        } else {
+            for child_page_id in &node.children {
+                Self::range_scan_recursive(buffer_pool, *child_page_id, start, end, result)?;
+            }
+        }
+        Ok(())
+    }
+
     fn split_root(buffer_pool: &mut BufferPool, root_page_id: &mut u32) -> Result<(), DbError> {
         let new_root_page_id = Self::allocate_node(buffer_pool, false)?;
         let old_root_page_id = *root_page_id;
@@ -549,6 +612,67 @@ mod tests {
             let result = BTreeOnDisk::lookup_static(&mut buffer_pool, root_id, &key)?;
             assert_eq!(result, Some(value));
         }
+
+        let _ = fs::remove_file(&path);
+        Ok(())
+    }
+
+    #[test]
+    fn test_btree_delete() -> Result<(), DbError> {
+        let path = temp_db_path();
+        let pager = Pager::open(&path)?;
+        let mut buffer_pool = BufferPool::new(pager, 10)?;
+        let btree = BTreeOnDisk::create(&mut buffer_pool)?;
+        let mut root_id = btree.root_page_id();
+
+        for i in 0..5_i64 {
+            let key = IndexKey::Integer(i);
+            let value = to_u64(i)?;
+            BTreeOnDisk::insert_static(&mut buffer_pool, &mut root_id, key, value)?;
+        }
+
+        let removed = BTreeOnDisk::delete_static(&mut buffer_pool, root_id, &IndexKey::Integer(2))?;
+        assert_eq!(removed, Some(2));
+
+        let missing = BTreeOnDisk::lookup_static(&mut buffer_pool, root_id, &IndexKey::Integer(2))?;
+        assert_eq!(missing, None);
+
+        let _ = fs::remove_file(&path);
+        Ok(())
+    }
+
+    #[test]
+    fn test_btree_range_scan() -> Result<(), DbError> {
+        let path = temp_db_path();
+        let pager = Pager::open(&path)?;
+        let mut buffer_pool = BufferPool::new(pager, 10)?;
+        let btree = BTreeOnDisk::create(&mut buffer_pool)?;
+        let mut root_id = btree.root_page_id();
+
+        for i in 0..10_i64 {
+            let key = IndexKey::Integer(i);
+            let value = to_u64(i)?;
+            BTreeOnDisk::insert_static(&mut buffer_pool, &mut root_id, key, value)?;
+        }
+
+        let mut result = Vec::new();
+        BTreeOnDisk::range_scan_static(
+            &mut buffer_pool,
+            root_id,
+            &IndexKey::Integer(3),
+            &IndexKey::Integer(8),
+            &mut result,
+        )?;
+
+        let expected: Vec<(IndexKey, u64)> = (3..8)
+            .map(|i| {
+                (
+                    IndexKey::Integer(i),
+                    to_u64(i).unwrap_or_else(|_| unreachable!()),
+                )
+            })
+            .collect();
+        assert_eq!(result, expected);
 
         let _ = fs::remove_file(&path);
         Ok(())
