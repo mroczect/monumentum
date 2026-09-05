@@ -9,6 +9,8 @@ use crate::serde::{decode_catalog, encode_catalog};
 use crate::store::append_log::WalRecordType;
 use crate::store::wal::Wal;
 use crate::table::Table;
+use crate::table_storage::TableStorage;
+use alloc::collections::BTreeMap;
 use monumentum_handler::core::row::Row;
 use monumentum_handler::core::schema::table_schema::TableSchema;
 use monumentum_handler::core::value::Value;
@@ -24,6 +26,7 @@ pub struct FileStorage {
     current_lsn: u64,
     catalog_page_id: u32,
     last_checkpoint_lsn: u64,
+    table_data: BTreeMap<String, TableStorage>,
 }
 
 impl FileStorage {
@@ -45,6 +48,7 @@ impl FileStorage {
             current_lsn,
             catalog_page_id,
             last_checkpoint_lsn,
+            table_data: BTreeMap::new(),
         };
 
         storage.apply_wal_records()?;
@@ -456,12 +460,22 @@ impl StorageEngine for FileStorage {
         self.write_catalog_to_pages(&catalog)
     }
 
-    fn insert_row(&mut self, _table: &str, _row: &Row) -> Result<(), DbError> {
-        Err(DbError::unsupported("row operations not yet integrated"))
+    fn insert_row(&mut self, table: &str, row: &Row) -> Result<(), DbError> {
+        let first_page_id = self
+            .table_data
+            .get(table)
+            .map(TableStorage::first_data_page_id)
+            .ok_or_else(|| DbError::table_not_found(table))?;
+        TableStorage::insert_row_static(&mut self.buffer_pool, first_page_id, row)
     }
 
-    fn get_row(&self, _table: &str, _row_idx: usize) -> Result<Option<Row>, DbError> {
-        Err(DbError::unsupported("row operations not yet integrated"))
+    fn get_row(&mut self, table: &str, row_idx: usize) -> Result<Option<Row>, DbError> {
+        let first_page_id = self
+            .table_data
+            .get(table)
+            .map(TableStorage::first_data_page_id)
+            .ok_or_else(|| DbError::table_not_found(table))?;
+        TableStorage::get_row_static(&mut self.buffer_pool, first_page_id, row_idx)
     }
 
     fn set_cell(
@@ -529,7 +543,7 @@ impl StorageEngine for InMemoryStorage {
         ))
     }
 
-    fn get_row(&self, _table: &str, _row_idx: usize) -> Result<Option<Row>, DbError> {
+    fn get_row(&mut self, _table: &str, _row_idx: usize) -> Result<Option<Row>, DbError> {
         Err(DbError::unsupported(
             "row operations not supported in InMemoryStorage",
         ))
