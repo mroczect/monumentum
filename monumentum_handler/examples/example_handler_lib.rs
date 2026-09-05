@@ -1,5 +1,6 @@
 use core::error::Error;
 use core::fmt::Write as _;
+use proptest as _;
 
 use monumentum_handler::{
     ColumnDef, DataType, DbError, Row, TableSchema, Value,
