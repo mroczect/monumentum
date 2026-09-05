@@ -1,4 +1,5 @@
 use crate::page::{PAGE_SIZE, Page, PageType};
+use fs2::FileExt;
 use monumentum_handler::error::DbError;
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
@@ -18,6 +19,7 @@ impl Pager {
             .create(true)
             .truncate(false)
             .open(path)?;
+        file.try_lock_exclusive().map_err(DbError::from_io)?;
 
         let file_len = file.metadata()?.len();
         let page_size_u64 = PAGE_SIZE as u64;
@@ -51,18 +53,29 @@ impl Pager {
         let _ = self.file.seek(SeekFrom::Start(offset))?;
         let mut buf = vec![0u8; PAGE_SIZE];
         self.file.read_exact(&mut buf)?;
-        Page::from_bytes(&buf)
+        let page = Page::from_bytes(&buf)?;
+        let expected = page.header.checksum;
+        let actual = page.compute_checksum();
+        if expected != actual {
+            return Err(DbError::corruption(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "checksum mismatch on page read",
+            )));
+        }
+        Ok(page)
     }
 
     pub fn write_page(&mut self, page: &Page) -> Result<(), DbError> {
         if page.header.page_id >= self.page_count {
             return Err(DbError::invalid_operation("page id out of bounds"));
         }
-        let offset = u64::from(page.header.page_id)
+        let mut page_copy = page.clone();
+        page_copy.header.checksum = page_copy.compute_checksum();
+        let offset = u64::from(page_copy.header.page_id)
             .checked_mul(PAGE_SIZE as u64)
             .ok_or_else(|| DbError::invalid_operation("offset overflow"))?;
         let _ = self.file.seek(SeekFrom::Start(offset))?;
-        let buf = page.as_bytes();
+        let buf = page_copy.as_bytes();
         self.file.write_all(&buf)?;
         self.file.sync_data()?;
         Ok(())
@@ -70,12 +83,14 @@ impl Pager {
 
     pub fn allocate_page(&mut self, page_type: PageType) -> Result<u32, DbError> {
         let new_page_id = self.page_count;
-        let page = Page::new(new_page_id, page_type);
+        let mut page = Page::new(new_page_id, page_type);
+        page.header.checksum = page.compute_checksum();
         let offset = u64::from(new_page_id)
             .checked_mul(PAGE_SIZE as u64)
             .ok_or_else(|| DbError::invalid_operation("offset overflow"))?;
         let _ = self.file.seek(SeekFrom::Start(offset))?;
-        self.file.write_all(&page.as_bytes())?;
+        let buf = page.as_bytes();
+        self.file.write_all(&buf)?;
         self.file.sync_data()?;
         self.page_count = self
             .page_count
@@ -104,5 +119,11 @@ impl Pager {
     #[must_use]
     pub const fn page_count(&self) -> u32 {
         self.page_count
+    }
+}
+
+impl Drop for Pager {
+    fn drop(&mut self) {
+        let _ = self.file.unlock();
     }
 }
