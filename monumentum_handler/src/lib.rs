@@ -1,7 +1,7 @@
 #![forbid(unsafe_code)]
-
 extern crate alloc;
-
+#[cfg(test)]
+use proptest as _;
 pub mod constants;
 pub mod core;
 pub mod error;

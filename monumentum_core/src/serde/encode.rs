@@ -2,12 +2,12 @@ use super::{Encode, FORMAT_VERSION};
 use crate::catalog::Catalog;
 use crate::table::Table;
 use monumentum_handler::{
-    core::row::Row,
     core::schema::column::{CheckConstraint, ColumnDef, ComparisonOp, DataType, ForeignKey},
     core::schema::table_schema::TableSchema,
     error::DbError,
 };
 
+use monumentum_handler::core::row::Row;
 impl Encode for DataType {
     fn encode(&self, buf: &mut Vec<u8>) -> Result<(), DbError> {
         let tag: u8 = match self {
@@ -79,29 +79,13 @@ impl Encode for TableSchema {
     }
 }
 
-impl Encode for Row {
-    fn encode(&self, buf: &mut Vec<u8>) -> Result<(), DbError> {
-        let len = u32::try_from(self.len())
-            .map_err(|e| DbError::invalid_operation(format!("row too large: {e}")))?;
-        len.encode(buf)?;
-        for value in self.values() {
-            value.encode(buf)?;
-        }
-        Ok(())
-    }
-}
-
 impl Encode for Table {
     fn encode(&self, buf: &mut Vec<u8>) -> Result<(), DbError> {
         self.schema().encode(buf)?;
         self.is_read_only().encode(buf)?;
-        let len = u32::try_from(self.len())
-            .map_err(|e| DbError::invalid_operation(format!("table too large: {e}")))?;
-        len.encode(buf)?;
-        for row in self.rows() {
-            row.encode(buf)?;
-        }
-        Ok(())
+        self.data_page_id().encode(buf)?;
+        self.index_root_page_id().encode(buf)?;
+        self.next_row_id().encode(buf)
     }
 }
 
@@ -114,6 +98,18 @@ impl Encode for Catalog {
         for (name, table) in self.tables() {
             name.as_bytes().encode(buf)?;
             table.encode(buf)?;
+        }
+        Ok(())
+    }
+}
+
+impl Encode for Row {
+    fn encode(&self, buf: &mut Vec<u8>) -> Result<(), DbError> {
+        let len = u32::try_from(self.len())
+            .map_err(|e| DbError::invalid_operation(format!("row too large: {e}")))?;
+        len.encode(buf)?;
+        for value in self.values() {
+            value.encode(buf)?;
         }
         Ok(())
     }

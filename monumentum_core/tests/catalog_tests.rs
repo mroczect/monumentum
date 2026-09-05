@@ -1,105 +1,105 @@
-use fs2 as _;
+#![allow(unused_crate_dependencies)]
+
 use monumentum_core::catalog::Catalog;
 use monumentum_core::table::Table;
 use monumentum_handler::core::schema::column::{ColumnDef, DataType};
 use monumentum_handler::core::schema::table_schema::TableSchema;
-use monumentum_handler::error::DbError;
+use monumentum_handler::traits::CatalogStore;
 
-#[test]
-fn new_catalog_is_empty() {
-    let cat = Catalog::new();
-    assert!(cat.is_empty());
-    assert_eq!(cat.len(), 0);
-    assert!(cat.tables().next().is_none());
+fn make_schema(name: &str) -> TableSchema {
+    let result = TableSchema::try_new(name, vec![ColumnDef::new("id", DataType::Integer)]);
+    assert!(result.is_ok());
+    result.unwrap_or_else(|_| unreachable!())
 }
 
 #[test]
-fn create_table_success() {
-    let mut cat = Catalog::new();
-    let schema_result = TableSchema::try_new("test", vec![ColumnDef::new("id", DataType::Integer)]);
-    let Ok(schema) = schema_result else { return };
-    assert!(cat.create_table(schema).is_ok());
-    assert!(!cat.is_empty());
-    assert_eq!(cat.len(), 1);
-    assert!(cat.get_table("test").is_some());
+fn test_catalog_create_table() {
+    let mut catalog = Catalog::new();
+    let schema = make_schema("users");
+    let result = catalog.create_table(schema.clone());
+    assert!(result.is_ok());
+    assert_eq!(catalog.len(), 1);
+    assert!(!catalog.is_empty());
+
+    let duplicate = catalog.create_table(schema);
+    assert!(duplicate.is_err());
 }
 
 #[test]
-fn create_table_duplicate_name_fails() {
-    let mut cat = Catalog::new();
-    let schema1_result = TableSchema::try_new("dup", vec![ColumnDef::new("id", DataType::Integer)]);
-    let Ok(schema1) = schema1_result else { return };
-    assert!(cat.create_table(schema1).is_ok());
+fn test_catalog_drop_table() {
+    let mut catalog = Catalog::new();
+    let _ = catalog.create_table(make_schema("users"));
+    assert_eq!(catalog.len(), 1);
 
-    let schema2_result = TableSchema::try_new("dup", vec![ColumnDef::new("id", DataType::Integer)]);
-    let Ok(schema2) = schema2_result else { return };
-    let result = cat.create_table(schema2);
-    assert!(result.is_err());
-    if let Err(e) = result {
-        assert!(matches!(e, DbError::InvalidOperation(_)));
+    let drop_ok = catalog.drop_table("users");
+    assert!(drop_ok.is_ok());
+    assert_eq!(catalog.len(), 0);
+    assert!(catalog.is_empty());
+
+    let drop_missing = catalog.drop_table("users");
+    assert!(drop_missing.is_err());
+}
+
+#[test]
+fn test_catalog_rename_table() {
+    let mut catalog = Catalog::new();
+    let _ = catalog.create_table(make_schema("old"));
+    let rename = catalog.rename_table("old", "new");
+    assert!(rename.is_ok());
+    assert!(catalog.get_table("new").is_some());
+    assert!(catalog.get_table("old").is_none());
+
+    let _ = catalog.create_table(make_schema("other"));
+    let rename_conflict = catalog.rename_table("other", "new");
+    assert!(rename_conflict.is_err());
+}
+
+#[test]
+fn test_catalog_replace_table() {
+    let mut catalog = Catalog::new();
+    let _ = catalog.create_table(make_schema("users"));
+    let table = Table::new(make_schema("users"));
+    let replace = catalog.replace_table("users", table);
+    assert!(replace.is_ok());
+
+    let wrong_table = Table::new(make_schema("wrong"));
+    let replace_wrong = catalog.replace_table("users", wrong_table);
+    assert!(replace_wrong.is_err());
+
+    let missing_table = Table::new(make_schema("missing"));
+    let replace_missing = catalog.replace_table("nonexistent", missing_table);
+    assert!(replace_missing.is_err());
+}
+
+#[test]
+fn test_catalog_get_table_and_iterator() {
+    let mut catalog = Catalog::new();
+    let _ = catalog.create_table(make_schema("a"));
+    let _ = catalog.create_table(make_schema("b"));
+
+    assert!(catalog.get_table("a").is_some());
+    assert!(catalog.get_table_mut("a").is_some());
+    assert!(catalog.get_table("c").is_none());
+
+    let mut count = 0;
+    for (name, _) in catalog.tables() {
+        assert!(name == "a" || name == "b");
+        count += 1;
     }
+    assert_eq!(count, 2);
 }
 
 #[test]
-fn drop_table_existing_removes() {
-    let mut cat = Catalog::new();
-    let schema_result =
-        TableSchema::try_new("dropme", vec![ColumnDef::new("id", DataType::Integer)]);
-    let Ok(schema) = schema_result else { return };
-    assert!(cat.create_table(schema).is_ok());
-    assert!(cat.drop_table("dropme").is_ok());
-    assert!(cat.get_table("dropme").is_none());
-    assert!(cat.is_empty());
-}
+fn test_catalog_trait_impl() {
+    let mut catalog = Catalog::new();
+    let schema = make_schema("trait_table");
+    let result = CatalogStore::create_table(&mut catalog, schema.clone());
+    assert!(result.is_ok());
 
-#[test]
-fn drop_table_missing_returns_error() {
-    let mut cat = Catalog::new();
-    let result = cat.drop_table("ghost");
-    assert!(result.is_err());
-    if let Err(e) = result {
-        assert!(matches!(e, DbError::TableNotFound(_)));
-    }
-}
+    let drop_result = CatalogStore::drop_table(&mut catalog, "trait_table");
+    assert!(drop_result.is_ok());
 
-#[test]
-fn rename_table_success_preserves_data() {
-    let mut cat = Catalog::new();
-    let schema_result = TableSchema::try_new("old", vec![ColumnDef::new("id", DataType::Integer)]);
-    let Ok(schema) = schema_result else { return };
-    assert!(cat.create_table(schema).is_ok());
-    assert!(cat.rename_table("old", "new").is_ok());
-    assert!(cat.get_table("old").is_none());
-    assert!(cat.get_table("new").is_some());
-}
-
-#[test]
-fn rename_table_same_name_noop() {
-    let mut cat = Catalog::new();
-    let schema_result = TableSchema::try_new("same", vec![ColumnDef::new("id", DataType::Integer)]);
-    let Ok(schema) = schema_result else { return };
-    assert!(cat.create_table(schema).is_ok());
-    assert!(cat.rename_table("same", "same").is_ok());
-    assert!(cat.get_table("same").is_some());
-}
-
-#[test]
-fn replace_table_valid() {
-    let mut cat = Catalog::new();
-    let schema1_result =
-        TableSchema::try_new("replace", vec![ColumnDef::new("id", DataType::Integer)]);
-    let Ok(schema1) = schema1_result else { return };
-    assert!(cat.create_table(schema1).is_ok());
-
-    let schema2_result =
-        TableSchema::try_new("replace", vec![ColumnDef::new("id", DataType::Integer)]);
-    let Ok(schema2) = schema2_result else { return };
-    let new_table = Table::new(schema2);
-    assert!(cat.replace_table("replace", new_table).is_ok());
-
-    let table = cat.get_table("replace");
-    assert!(table.is_some());
-    if let Some(t) = table {
-        assert_eq!(t.len(), 0);
-    }
+    let _ = CatalogStore::create_table(&mut catalog, schema);
+    let rename_result = CatalogStore::rename_table(&mut catalog, "trait_table", "renamed");
+    assert!(rename_result.is_ok());
 }

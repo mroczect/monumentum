@@ -109,10 +109,7 @@ impl TableSchema {
     }
 
     #[must_use]
-    pub fn get_column_by_index<I>(&self, index: &I) -> Option<&ColumnDef>
-    where
-        I: crate::core::schema::column::ColumnIndex<Self>,
-    {
-        index.index(self).ok().and_then(|i| self.columns.get(i))
+    pub fn get_column_by_index(&self, index: usize) -> Option<&ColumnDef> {
+        self.columns.get(index)
     }
 }

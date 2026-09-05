@@ -1,114 +1,886 @@
+use crate::buffer_pool::BufferPool;
 use crate::catalog::Catalog;
+use crate::index::btree::BTreeOnDisk;
+use crate::index::key::IndexKey;
+use crate::page::{
+    CATALOG_CHUNK_SIZE, CATALOG_PAGE_HEADER_SIZE, META_CATALOG_PAGE_OFFSET,
+    META_LAST_CHECKPOINT_LSN_OFFSET, META_LSN_OFFSET, META_PAGE_ID, Page, PageType,
+};
+use crate::pager::Pager;
 use crate::serde::{Decode, Encode};
-use crate::store::file::write_all_atomic;
+use crate::serde::{decode_catalog, encode_catalog};
+use crate::store::append_log::WalRecordType;
 use crate::store::wal::Wal;
 use crate::table::Table;
+use crate::table_storage::TableStorage;
+use alloc::collections::BTreeMap;
+use monumentum_handler::core::row::Row;
+use monumentum_handler::core::schema::column::ColumnDef;
+use monumentum_handler::core::schema::table_schema::TableSchema;
+use monumentum_handler::core::value::Value;
 use monumentum_handler::error::DbError;
+use monumentum_handler::traits::StorageEngine;
 use std::io::Cursor;
-use std::path::{Path, PathBuf};
-pub trait StorageEngine {
-    fn get_catalog(&self) -> &Catalog;
-    fn save_catalog(&mut self, catalog: &Catalog) -> Result<(), DbError>;
-    fn get_table(&self, name: &str) -> Option<&Table>;
-}
+use std::path::Path;
 
 #[derive(Debug)]
 pub struct FileStorage {
-    data_path: PathBuf,
     wal: Wal,
+    buffer_pool: BufferPool,
     catalog: Catalog,
-    current_seq: u64,
+    current_lsn: u64,
+    catalog_page_id: u32,
+    last_checkpoint_lsn: u64,
+    table_data: BTreeMap<String, TableStorage>,
+    index_data: BTreeMap<String, u32>,
 }
 
 impl FileStorage {
-    pub fn open(path: &Path) -> Result<Self, DbError> {
-        let data_path = path.to_path_buf();
-        let mut wal_path = path.to_path_buf();
-        let _ = wal_path.set_extension("wal");
+    pub fn open(path: &Path, cache_capacity: usize) -> Result<Self, DbError> {
+        let wal_path = path.with_extension("wal");
+        let wal = Wal::open(&wal_path)?;
 
-        let mut wal = Wal::open(&wal_path)?;
+        let pager = Pager::open(path)?;
+        let mut buffer_pool = BufferPool::new(pager, cache_capacity)?;
 
-        let (mut catalog, mut current_seq) = if data_path.exists() {
-            let data = std::fs::read(&data_path)?;
-            let (seq, cat) = decode_snapshot(&data)?;
-            (cat, seq)
-        } else {
-            (Catalog::new(), 0)
-        };
+        let (current_lsn, catalog_page_id, last_checkpoint_lsn) =
+            Self::load_or_init_meta(&mut buffer_pool)?;
+        let catalog = Self::load_catalog(&mut buffer_pool, catalog_page_id)?;
 
-        let records = wal.read_all()?;
-        for record in records {
-            let (seq, cat) = decode_snapshot(&record)?;
-            if seq > current_seq {
-                current_seq = seq;
-                catalog = cat;
+        let mut table_data = BTreeMap::new();
+        let mut index_data = BTreeMap::new();
+
+        for (name, table) in catalog.tables() {
+            if let Some(id) = table.data_page_id() {
+                let _ = table_data.insert(name.to_string(), TableStorage::from_first_page_id(id));
+            }
+            if let Some(root_id) = table.index_root_page_id() {
+                let _ = index_data.insert(name.to_string(), root_id);
             }
         }
 
-        Ok(Self {
-            data_path,
+        let mut storage = Self {
             wal,
+            buffer_pool,
             catalog,
-            current_seq,
-        })
+            current_lsn,
+            catalog_page_id,
+            last_checkpoint_lsn,
+            table_data,
+            index_data,
+        };
+
+        storage.apply_wal_records()?;
+        let catalog = Self::load_catalog(&mut storage.buffer_pool, storage.catalog_page_id)?;
+        storage.catalog = catalog;
+
+        storage.table_data.clear();
+        storage.index_data.clear();
+        for (name, table) in storage.catalog.tables() {
+            if let Some(id) = table.data_page_id() {
+                let _ = storage
+                    .table_data
+                    .insert(name.to_string(), TableStorage::from_first_page_id(id));
+            }
+            if let Some(root_id) = table.index_root_page_id() {
+                let _ = storage.index_data.insert(name.to_string(), root_id);
+            }
+        }
+        storage.checkpoint()?;
+
+        Ok(storage)
+    }
+
+    fn load_or_init_meta(buffer_pool: &mut BufferPool) -> Result<(u64, u32, u64), DbError> {
+        if buffer_pool.page_count() == 0 {
+            let meta_page_id = buffer_pool.allocate_page(PageType::Meta)?;
+            debug_assert_eq!(meta_page_id, META_PAGE_ID);
+            let catalog_page_id = buffer_pool.allocate_page(PageType::Data)?;
+            {
+                let meta_page = buffer_pool.get_page(META_PAGE_ID)?;
+                meta_page.header.page_type = PageType::Meta;
+                meta_page.data[META_LSN_OFFSET..META_LSN_OFFSET + 8]
+                    .copy_from_slice(&0u64.to_le_bytes());
+                meta_page.data[META_CATALOG_PAGE_OFFSET..META_CATALOG_PAGE_OFFSET + 4]
+                    .copy_from_slice(&catalog_page_id.to_le_bytes());
+                meta_page.data
+                    [META_LAST_CHECKPOINT_LSN_OFFSET..META_LAST_CHECKPOINT_LSN_OFFSET + 8]
+                    .copy_from_slice(&0u64.to_le_bytes());
+            }
+            buffer_pool.unpin_page(META_PAGE_ID, true)?;
+
+            let empty_catalog = Catalog::new();
+            let encoded = encode_catalog(&empty_catalog)?;
+            let chunk = encoded.as_slice();
+            let page = buffer_pool.get_page(catalog_page_id)?;
+            page.header.page_type = PageType::Data;
+            page.data.fill(0);
+            page.data[0..4].copy_from_slice(&0u32.to_le_bytes());
+            let used_len = u32::try_from(chunk.len()).map_err(|e| {
+                DbError::invalid_operation(format!("catalog chunk length overflow: {e}"))
+            })?;
+            page.data[4..8].copy_from_slice(&used_len.to_le_bytes());
+            let start = CATALOG_PAGE_HEADER_SIZE;
+            let end = start
+                .checked_add(chunk.len())
+                .ok_or_else(|| DbError::invalid_operation("catalog chunk too large"))?;
+            page.data
+                .get_mut(start..end)
+                .ok_or_else(|| DbError::invalid_operation("catalog chunk does not fit"))?
+                .copy_from_slice(chunk);
+            buffer_pool.unpin_page(catalog_page_id, true)?;
+
+            Ok((0, catalog_page_id, 0))
+        } else {
+            let meta_page = buffer_pool.get_page(META_PAGE_ID)?;
+            let lsn = u64::from_le_bytes(
+                meta_page
+                    .data
+                    .get(META_LSN_OFFSET..META_LSN_OFFSET + 8)
+                    .ok_or_else(|| {
+                        DbError::corruption(std::io::Error::new(
+                            std::io::ErrorKind::InvalidData,
+                            "meta page too small",
+                        ))
+                    })?
+                    .try_into()
+                    .map_err(|e| {
+                        DbError::corruption(std::io::Error::new(
+                            std::io::ErrorKind::InvalidData,
+                            format!("invalid LSN slice: {e}"),
+                        ))
+                    })?,
+            );
+            let cat_page_id = u32::from_le_bytes(
+                meta_page
+                    .data
+                    .get(META_CATALOG_PAGE_OFFSET..META_CATALOG_PAGE_OFFSET + 4)
+                    .ok_or_else(|| {
+                        DbError::corruption(std::io::Error::new(
+                            std::io::ErrorKind::InvalidData,
+                            "meta page too small",
+                        ))
+                    })?
+                    .try_into()
+                    .map_err(|e| {
+                        DbError::corruption(std::io::Error::new(
+                            std::io::ErrorKind::InvalidData,
+                            format!("invalid catalog page slice: {e}"),
+                        ))
+                    })?,
+            );
+            let last_checkpoint = u64::from_le_bytes(
+                meta_page
+                    .data
+                    .get(META_LAST_CHECKPOINT_LSN_OFFSET..META_LAST_CHECKPOINT_LSN_OFFSET + 8)
+                    .ok_or_else(|| {
+                        DbError::corruption(std::io::Error::new(
+                            std::io::ErrorKind::InvalidData,
+                            "meta page too small",
+                        ))
+                    })?
+                    .try_into()
+                    .map_err(|e| {
+                        DbError::corruption(std::io::Error::new(
+                            std::io::ErrorKind::InvalidData,
+                            format!("invalid last checkpoint LSN slice: {e}"),
+                        ))
+                    })?,
+            );
+            buffer_pool.unpin_page(META_PAGE_ID, false)?;
+            Ok((lsn, cat_page_id, last_checkpoint))
+        }
+    }
+
+    fn load_catalog(buffer_pool: &mut BufferPool, first_page_id: u32) -> Result<Catalog, DbError> {
+        let mut data = Vec::new();
+        let mut current_page_id = first_page_id;
+        loop {
+            let page = buffer_pool.get_page(current_page_id)?;
+            let next_page_id = u32::from_le_bytes(
+                page.data
+                    .get(0..4)
+                    .ok_or_else(|| {
+                        DbError::corruption(std::io::Error::new(
+                            std::io::ErrorKind::InvalidData,
+                            "missing next_page_id",
+                        ))
+                    })?
+                    .try_into()
+                    .map_err(|e| {
+                        DbError::corruption(std::io::Error::new(
+                            std::io::ErrorKind::InvalidData,
+                            format!("invalid next_page_id: {e}"),
+                        ))
+                    })?,
+            );
+            let used_len = u32::from_le_bytes(
+                page.data
+                    .get(4..8)
+                    .ok_or_else(|| {
+                        DbError::corruption(std::io::Error::new(
+                            std::io::ErrorKind::InvalidData,
+                            "missing used_len",
+                        ))
+                    })?
+                    .try_into()
+                    .map_err(|e| {
+                        DbError::corruption(std::io::Error::new(
+                            std::io::ErrorKind::InvalidData,
+                            format!("invalid used_len: {e}"),
+                        ))
+                    })?,
+            ) as usize;
+            if used_len > CATALOG_CHUNK_SIZE {
+                return Err(DbError::corruption(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "used_len exceeds chunk size",
+                )));
+            }
+            let start = CATALOG_PAGE_HEADER_SIZE;
+            let end = start.checked_add(used_len).ok_or_else(|| {
+                DbError::corruption(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "used_len overflow",
+                ))
+            })?;
+            data.extend_from_slice(page.data.get(start..end).ok_or_else(|| {
+                DbError::corruption(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "catalog chunk missing",
+                ))
+            })?);
+            buffer_pool.unpin_page(current_page_id, false)?;
+
+            if next_page_id == 0 {
+                break;
+            }
+            current_page_id = next_page_id;
+        }
+        decode_catalog(&data)
+    }
+
+    fn apply_wal_records(&mut self) -> Result<(), DbError> {
+        let wal_records = self.wal.read_wal_records()?;
+        for record in wal_records {
+            if record.lsn <= self.last_checkpoint_lsn {
+                continue;
+            }
+            match record.record_type {
+                WalRecordType::PageWrite => self.apply_page_write(&record)?,
+                WalRecordType::Snapshot => {
+                    let (lsn, catalog) = decode_snapshot(&record.data)?;
+                    self.catalog = catalog;
+                    self.current_lsn = lsn;
+                    self.index_data.clear();
+                    for (name, table) in self.catalog.tables() {
+                        if let Some(root_id) = table.index_root_page_id() {
+                            let _ = self.index_data.insert(name.to_string(), root_id);
+                        }
+                    }
+                }
+                WalRecordType::TableMetaUpdate => {
+                    let (table_name, next_row_id, index_root) =
+                        Self::decode_table_meta_update(&record.data)?;
+                    if let Some(table_meta) = self.catalog.get_table_mut(&table_name) {
+                        table_meta.set_next_row_id(next_row_id);
+                        if let Some(root) = index_root {
+                            table_meta.set_index_root_page_id(root);
+                        } else {
+                            table_meta.clear_index_root_page_id();
+                        }
+                    }
+                    if let Some(root) = index_root {
+                        let _ = self.index_data.insert(table_name.clone(), root);
+                    } else {
+                        let _ = self.index_data.remove(&table_name);
+                    }
+                    self.current_lsn = record.lsn;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn apply_page_write(
+        &mut self,
+        record: &crate::store::append_log::WalRecord,
+    ) -> Result<(), DbError> {
+        let min_len = 4_usize
+            .checked_add(crate::page::PAGE_SIZE)
+            .ok_or_else(|| DbError::invalid_operation("PageWrite length overflow"))?;
+        if record.data.len() < min_len {
+            return Err(DbError::corruption(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "invalid PageWrite record size",
+            )));
+        }
+
+        let page_id = u32::from_le_bytes(
+            record
+                .data
+                .get(0..4)
+                .ok_or_else(|| {
+                    DbError::corruption(std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        "missing page_id",
+                    ))
+                })?
+                .try_into()
+                .map_err(|e| {
+                    DbError::corruption(std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        format!("invalid page_id slice: {e}"),
+                    ))
+                })?,
+        );
+        let page_bytes = record.data.get(4..).ok_or_else(|| {
+            DbError::corruption(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "missing page data",
+            ))
+        })?;
+        let page = Page::from_bytes(page_bytes)?;
+        let buffered_page = self.buffer_pool.get_page(page_id)?;
+        *buffered_page = page;
+        self.buffer_pool.unpin_page(page_id, true)?;
+        self.current_lsn = record.lsn;
+        Ok(())
+    }
+
+    pub fn checkpoint(&mut self) -> Result<(), DbError> {
+        let catalog = self.catalog.clone();
+        self.write_catalog_to_pages(&catalog)?;
+
+        self.buffer_pool.flush_all()?;
+        self.buffer_pool.flush_all()?;
+        {
+            let meta_page = self.buffer_pool.get_page(META_PAGE_ID)?;
+            meta_page.data[META_LSN_OFFSET..META_LSN_OFFSET + 8]
+                .copy_from_slice(&self.current_lsn.to_le_bytes());
+            meta_page.data[META_CATALOG_PAGE_OFFSET..META_CATALOG_PAGE_OFFSET + 4]
+                .copy_from_slice(&self.catalog_page_id.to_le_bytes());
+            meta_page.data[META_LAST_CHECKPOINT_LSN_OFFSET..META_LAST_CHECKPOINT_LSN_OFFSET + 8]
+                .copy_from_slice(&self.current_lsn.to_le_bytes());
+        }
+        self.buffer_pool.unpin_page(META_PAGE_ID, true)?;
+        self.buffer_pool.flush_page(META_PAGE_ID)?;
+        self.buffer_pool.flush_all()?;
+        self.wal.truncate()?;
+        self.last_checkpoint_lsn = self.current_lsn;
+        Ok(())
+    }
+
+    fn write_catalog_to_pages(&mut self, catalog: &Catalog) -> Result<(), DbError> {
+        let encoded = encode_catalog(catalog)?;
+        let chunks: Vec<&[u8]> = encoded.chunks(CATALOG_CHUNK_SIZE).collect();
+        let needed_pages = chunks.len();
+
+        let existing_pages = self.collect_existing_catalog_pages()?;
+
+        for _ in existing_pages.len()..needed_pages {
+            let _ = self.buffer_pool.allocate_page(PageType::Data)?;
+        }
+
+        let all_pages = self.collect_existing_catalog_pages()?;
+
+        for (i, chunk) in chunks.iter().enumerate() {
+            let page_id = *all_pages
+                .get(i)
+                .ok_or_else(|| DbError::invalid_operation("page index out of bounds"))?;
+            let next_index = i
+                .checked_add(1)
+                .ok_or_else(|| DbError::invalid_operation("index overflow"))?;
+            let next_page_id = if next_index < needed_pages {
+                *all_pages
+                    .get(next_index)
+                    .ok_or_else(|| DbError::invalid_operation("next page index out of bounds"))?
+            } else {
+                0
+            };
+            self.write_catalog_chunk(page_id, next_page_id, chunk)?;
+            self.append_page_write_wal(page_id)?;
+        }
+
+        for extra_page_id in all_pages.iter().skip(needed_pages) {
+            let page = self.buffer_pool.get_page(*extra_page_id)?;
+            page.header.page_type = PageType::Freelist;
+            page.data.fill(0);
+            self.buffer_pool.unpin_page(*extra_page_id, true)?;
+            self.append_page_write_wal(*extra_page_id)?;
+        }
+
+        self.catalog_page_id = *all_pages
+            .first()
+            .ok_or_else(|| DbError::invalid_operation("no catalog pages"))?;
+
+        Ok(())
+    }
+
+    fn collect_existing_catalog_pages(&mut self) -> Result<Vec<u32>, DbError> {
+        let mut pages = Vec::new();
+        let mut current = self.catalog_page_id;
+        while current != 0 {
+            pages.push(current);
+            let page = self.buffer_pool.get_page(current)?;
+            let next = u32::from_le_bytes(
+                page.data
+                    .get(0..4)
+                    .ok_or_else(|| {
+                        DbError::corruption(std::io::Error::new(
+                            std::io::ErrorKind::InvalidData,
+                            "missing next_page_id",
+                        ))
+                    })?
+                    .try_into()
+                    .map_err(|e| {
+                        DbError::corruption(std::io::Error::new(
+                            std::io::ErrorKind::InvalidData,
+                            format!("invalid next_page_id: {e}"),
+                        ))
+                    })?,
+            );
+            self.buffer_pool.unpin_page(current, false)?;
+            current = next;
+        }
+        Ok(pages)
+    }
+
+    fn write_catalog_chunk(
+        &mut self,
+        page_id: u32,
+        next_page_id: u32,
+        chunk: &[u8],
+    ) -> Result<(), DbError> {
+        let page = self.buffer_pool.get_page(page_id)?;
+        page.header.page_type = PageType::Data;
+        page.data.fill(0);
+        page.data[0..4].copy_from_slice(&next_page_id.to_le_bytes());
+        let chunk_len = u32::try_from(chunk.len())
+            .map_err(|e| DbError::invalid_operation(format!("chunk length overflow: {e}")))?;
+        page.data[4..8].copy_from_slice(&chunk_len.to_le_bytes());
+        let start = CATALOG_PAGE_HEADER_SIZE;
+        let end = start
+            .checked_add(chunk.len())
+            .ok_or_else(|| DbError::invalid_operation("chunk size overflow"))?;
+        page.data
+            .get_mut(start..end)
+            .ok_or_else(|| DbError::invalid_operation("chunk too large for page"))?
+            .copy_from_slice(chunk);
+        self.buffer_pool.unpin_page(page_id, true)?;
+        Ok(())
+    }
+
+    fn append_page_write_wal(&mut self, page_id: u32) -> Result<(), DbError> {
+        let page = self.buffer_pool.get_page(page_id)?;
+        let page_bytes = page.as_bytes();
+        self.buffer_pool.unpin_page(page_id, false)?;
+
+        let wal_data_len = 4_usize
+            .checked_add(page_bytes.len())
+            .ok_or_else(|| DbError::invalid_operation("WAL data size overflow"))?;
+        let mut wal_data = Vec::with_capacity(wal_data_len);
+        wal_data.extend_from_slice(&page_id.to_le_bytes());
+        wal_data.extend_from_slice(&page_bytes);
+        let new_lsn = self
+            .current_lsn
+            .checked_add(1)
+            .ok_or_else(|| DbError::invalid_operation("LSN overflow"))?;
+        self.wal
+            .append_wal_record(new_lsn, WalRecordType::PageWrite, &wal_data)?;
+        self.current_lsn = new_lsn;
+        Ok(())
     }
 
     pub fn sync(&mut self) -> Result<(), DbError> {
         self.wal.sync()
     }
 
-    pub fn checkpoint(&mut self) -> Result<(), DbError> {
-        let data = encode_snapshot(self.current_seq, &self.catalog)?;
-        write_all_atomic(&self.data_path, &data)?;
-        self.wal.truncate()?;
-        Ok(())
-    }
-
-    pub fn reload_from_disk(&mut self) -> Result<Catalog, DbError> {
-        let data = std::fs::read(&self.data_path)?;
-        let (snapshot_seq, snapshot_cat) = decode_snapshot(&data)?;
-        let records = self.wal.read_all()?;
-
-        let mut current_seq = snapshot_seq;
-        let mut catalog = snapshot_cat;
-        for record in records {
-            let (record_seq, record_cat) = decode_snapshot(&record)?;
-            if record_seq > current_seq {
-                current_seq = record_seq;
-                catalog = record_cat;
-            }
-        }
-
-        self.catalog = catalog.clone();
-        self.current_seq = current_seq;
-        Ok(catalog)
-    }
-
     pub fn close(mut self) -> Result<(), DbError> {
+        self.checkpoint()?;
         self.wal.unlock()?;
         Ok(())
+    }
+
+    pub fn save_catalog(&mut self, catalog: &Catalog) -> Result<(), DbError> {
+        self.catalog = catalog.clone();
+        self.index_data.clear();
+        for (name, table) in self.catalog.tables() {
+            if let Some(root_id) = table.index_root_page_id() {
+                let _ = self.index_data.insert(name.to_string(), root_id);
+            }
+        }
+        self.write_catalog_to_pages(catalog)
+    }
+
+    #[must_use]
+    pub const fn get_catalog(&self) -> &Catalog {
+        &self.catalog
+    }
+
+    #[must_use]
+    pub fn get_table(&self, name: &str) -> Option<&Table> {
+        self.catalog.get_table(name)
+    }
+
+    fn read_all_rows(&mut self, table: &str) -> Result<Vec<Row>, DbError> {
+        let first_page_id = self
+            .table_data
+            .get(table)
+            .map(TableStorage::first_data_page_id)
+            .ok_or_else(|| DbError::table_not_found(table))?;
+        let mut rows = Vec::new();
+        let mut idx = 0usize;
+        loop {
+            let row = TableStorage::get_row_static(&mut self.buffer_pool, first_page_id, idx)?;
+            match row {
+                Some(r) => {
+                    rows.push(r);
+                    idx = idx
+                        .checked_add(1)
+                        .ok_or_else(|| DbError::invalid_operation("row index overflow"))?;
+                }
+                None => break,
+            }
+        }
+        Ok(rows)
+    }
+
+    fn encode_table_meta_update(
+        table_name: &str,
+        next_row_id: u64,
+        index_root_page_id: Option<u32>,
+    ) -> Result<Vec<u8>, DbError> {
+        let mut buf = Vec::new();
+        table_name.as_bytes().encode(&mut buf)?;
+        next_row_id.encode(&mut buf)?;
+        index_root_page_id.encode(&mut buf)?;
+        Ok(buf)
+    }
+
+    fn decode_table_meta_update(data: &[u8]) -> Result<(String, u64, Option<u32>), DbError> {
+        let mut cursor = Cursor::new(data);
+        let table_name = String::decode(&mut cursor)?;
+        let next_row_id = u64::decode(&mut cursor)?;
+        let index_root_page_id = Option::<u32>::decode(&mut cursor)?;
+        Ok((table_name, next_row_id, index_root_page_id))
     }
 }
 
 impl StorageEngine for FileStorage {
-    fn get_catalog(&self) -> &Catalog {
-        &self.catalog
+    fn create_table(&mut self, schema: TableSchema) -> Result<(), DbError> {
+        let name = schema.name().to_string();
+        self.catalog.create_table(schema.clone())?;
+
+        let table_storage = TableStorage::new(&mut self.buffer_pool)?;
+        let first_page_id = table_storage.first_data_page_id();
+        let _ = self.table_data.insert(name.clone(), table_storage);
+
+        if schema.columns().iter().any(ColumnDef::is_primary_key) {
+            let btree = BTreeOnDisk::create(&mut self.buffer_pool)?;
+            let root_id = btree.root_page_id();
+            let _ = self.index_data.insert(name.clone(), root_id);
+            if let Some(table) = self.catalog.get_table_mut(&name) {
+                table.set_data_page_id(first_page_id);
+                table.set_index_root_page_id(root_id);
+            }
+        } else if let Some(table) = self.catalog.get_table_mut(&name) {
+            table.set_data_page_id(first_page_id);
+        }
+
+        let catalog = self.catalog.clone();
+        self.write_catalog_to_pages(&catalog)
     }
 
-    fn save_catalog(&mut self, catalog: &Catalog) -> Result<(), DbError> {
-        let new_seq = self
-            .current_seq
+    fn drop_table(&mut self, name: &str) -> Result<(), DbError> {
+        self.catalog.drop_table(name)?;
+        let _ = self.table_data.remove(name);
+        let _ = self.index_data.remove(name);
+        let catalog = self.catalog.clone();
+        self.write_catalog_to_pages(&catalog)
+    }
+
+    fn rename_table(&mut self, old_name: &str, new_name: &str) -> Result<(), DbError> {
+        self.catalog.rename_table(old_name, new_name)?;
+        if let Some(storage) = self.table_data.remove(old_name) {
+            let _ = self.table_data.insert(new_name.to_string(), storage);
+        }
+        if let Some(root) = self.index_data.remove(old_name) {
+            let _ = self.index_data.insert(new_name.to_string(), root);
+        }
+        let catalog = self.catalog.clone();
+        self.write_catalog_to_pages(&catalog)
+    }
+
+    fn insert_row(&mut self, table: &str, row: &Row) -> Result<(), DbError> {
+        let schema = self
+            .catalog
+            .get_table(table)
+            .ok_or_else(|| DbError::table_not_found(table))?
+            .schema()
+            .clone();
+        let data_page_id = self
+            .table_data
+            .get(table)
+            .map(TableStorage::first_data_page_id)
+            .ok_or_else(|| DbError::table_not_found(table))?;
+
+        let row_idx = {
+            let table_meta = self
+                .catalog
+                .get_table_mut(table)
+                .ok_or_else(|| DbError::table_not_found(table))?;
+            table_meta.increment_next_row_id()?
+        };
+
+        TableStorage::insert_row_static(&mut self.buffer_pool, data_page_id, row)?;
+
+        if let Some(pk_col_idx) = schema.columns().iter().position(ColumnDef::is_primary_key)
+            && let Some(key_val) = row.get(pk_col_idx)
+            && let Some(index_key) = IndexKey::from_value(key_val)
+            && let Some(root_id) = self.index_data.get_mut(table)
+        {
+            let old_root = *root_id;
+            BTreeOnDisk::insert_static(&mut self.buffer_pool, root_id, index_key, row_idx)?;
+            if *root_id != old_root
+                && let Some(table_meta) = self.catalog.get_table_mut(table)
+            {
+                table_meta.set_index_root_page_id(*root_id);
+            }
+        }
+
+        let dirty_pages = self.buffer_pool.dirty_page_ids();
+        for page_id in dirty_pages {
+            self.append_page_write_wal(page_id)?;
+        }
+
+        let table_meta = self
+            .catalog
+            .get_table(table)
+            .ok_or_else(|| DbError::table_not_found(table))?;
+        let next_row_id = table_meta.next_row_id();
+        let index_root = table_meta.index_root_page_id();
+
+        let payload = Self::encode_table_meta_update(table, next_row_id, index_root)?;
+        let new_lsn = self
+            .current_lsn
             .checked_add(1)
-            .ok_or_else(|| DbError::invalid_operation("sequence number overflow"))?;
-        let data = encode_snapshot(new_seq, catalog)?;
-        self.wal.append(&data)?;
-        self.current_seq = new_seq;
-        self.catalog = catalog.clone();
+            .ok_or_else(|| DbError::invalid_operation("LSN overflow"))?;
+        self.wal
+            .append_wal_record(new_lsn, WalRecordType::TableMetaUpdate, &payload)?;
+        self.current_lsn = new_lsn;
         Ok(())
     }
 
-    fn get_table(&self, name: &str) -> Option<&Table> {
-        self.catalog.get_table(name)
+    fn get_row(&mut self, table: &str, row_idx: usize) -> Result<Option<Row>, DbError> {
+        let first_page_id = self
+            .table_data
+            .get(table)
+            .map(TableStorage::first_data_page_id)
+            .ok_or_else(|| DbError::table_not_found(table))?;
+        TableStorage::get_row_static(&mut self.buffer_pool, first_page_id, row_idx)
+    }
+
+    fn set_cell(
+        &mut self,
+        table: &str,
+        row_idx: usize,
+        col_idx: usize,
+        value: Value,
+    ) -> Result<(), DbError> {
+        let schema = self
+            .catalog
+            .get_table(table)
+            .ok_or_else(|| DbError::table_not_found(table))?
+            .schema()
+            .clone();
+
+        let mut rows = self.read_all_rows(table)?;
+        if row_idx >= rows.len() {
+            return Err(DbError::invalid_operation("row index out of bounds"));
+        }
+        let row = rows
+            .get_mut(row_idx)
+            .ok_or_else(|| DbError::invalid_operation("row missing"))?;
+        if col_idx >= row.len() {
+            return Err(DbError::invalid_operation("column index out of bounds"));
+        }
+        let mut values = row.values().to_vec();
+        let cell = values
+            .get_mut(col_idx)
+            .ok_or_else(|| DbError::invalid_operation("column index out of bounds"))?;
+        *cell = value;
+        *row = Row::new(values);
+
+        let first_page_id = self
+            .table_data
+            .get(table)
+            .map(TableStorage::first_data_page_id)
+            .ok_or_else(|| DbError::table_not_found(table))?;
+
+        TableStorage::clear_static(&mut self.buffer_pool, first_page_id)?;
+
+        if schema.columns().iter().any(ColumnDef::is_primary_key) {
+            let btree = BTreeOnDisk::create(&mut self.buffer_pool)?;
+            let root_id = btree.root_page_id();
+            let _ = self.index_data.insert(table.to_string(), root_id);
+            if let Some(table_meta) = self.catalog.get_table_mut(table) {
+                table_meta.set_index_root_page_id(root_id);
+            }
+        } else {
+            let _ = self.index_data.remove(table);
+            if let Some(table_meta) = self.catalog.get_table_mut(table) {
+                table_meta.clear_index_root_page_id();
+            }
+        }
+
+        let mut current_idx = 0u64;
+        for row in &rows {
+            TableStorage::insert_row_static(&mut self.buffer_pool, first_page_id, row)?;
+            if let Some(pk_col_idx) = schema.columns().iter().position(ColumnDef::is_primary_key)
+                && let Some(key_val) = row.get(pk_col_idx)
+                && let Some(index_key) = IndexKey::from_value(key_val)
+                && let Some(root_id) = self.index_data.get_mut(table)
+            {
+                let old_root = *root_id;
+                BTreeOnDisk::insert_static(&mut self.buffer_pool, root_id, index_key, current_idx)?;
+                if *root_id != old_root
+                    && let Some(table_meta) = self.catalog.get_table_mut(table)
+                {
+                    table_meta.set_index_root_page_id(*root_id);
+                }
+            }
+            current_idx = current_idx
+                .checked_add(1)
+                .ok_or_else(|| DbError::invalid_operation("row index overflow"))?;
+        }
+
+        if let Some(table_meta) = self.catalog.get_table_mut(table) {
+            table_meta.set_next_row_id(current_idx);
+        }
+        let dirty_pages = self.buffer_pool.dirty_page_ids();
+        for page_id in dirty_pages {
+            self.append_page_write_wal(page_id)?;
+        }
+
+        let table_meta = self
+            .catalog
+            .get_table(table)
+            .ok_or_else(|| DbError::table_not_found(table))?;
+        let next_row_id = table_meta.next_row_id();
+        let index_root = table_meta.index_root_page_id();
+
+        let payload = Self::encode_table_meta_update(table, next_row_id, index_root)?;
+        let new_lsn = self
+            .current_lsn
+            .checked_add(1)
+            .ok_or_else(|| DbError::invalid_operation("LSN overflow"))?;
+        self.wal
+            .append_wal_record(new_lsn, WalRecordType::TableMetaUpdate, &payload)?;
+        self.current_lsn = new_lsn;
+        Ok(())
+    }
+
+    fn replace_rows(&mut self, table: &str, rows: Vec<Row>) -> Result<(), DbError> {
+        let schema = self
+            .catalog
+            .get_table(table)
+            .ok_or_else(|| DbError::table_not_found(table))?
+            .schema()
+            .clone();
+
+        let first_page_id = self
+            .table_data
+            .get(table)
+            .map(TableStorage::first_data_page_id)
+            .ok_or_else(|| DbError::table_not_found(table))?;
+
+        TableStorage::clear_static(&mut self.buffer_pool, first_page_id)?;
+
+        if schema.columns().iter().any(ColumnDef::is_primary_key) {
+            let btree = BTreeOnDisk::create(&mut self.buffer_pool)?;
+            let root_id = btree.root_page_id();
+            let _ = self.index_data.insert(table.to_string(), root_id);
+            if let Some(table_meta) = self.catalog.get_table_mut(table) {
+                table_meta.set_index_root_page_id(root_id);
+            }
+        } else {
+            let _ = self.index_data.remove(table);
+            if let Some(table_meta) = self.catalog.get_table_mut(table) {
+                table_meta.clear_index_root_page_id();
+            }
+        }
+
+        let mut current_idx = 0u64;
+        for row in &rows {
+            TableStorage::insert_row_static(&mut self.buffer_pool, first_page_id, row)?;
+            if let Some(pk_col_idx) = schema.columns().iter().position(ColumnDef::is_primary_key)
+                && let Some(key_val) = row.get(pk_col_idx)
+                && let Some(index_key) = IndexKey::from_value(key_val)
+                && let Some(root_id) = self.index_data.get_mut(table)
+            {
+                let old_root = *root_id;
+                BTreeOnDisk::insert_static(&mut self.buffer_pool, root_id, index_key, current_idx)?;
+                if *root_id != old_root
+                    && let Some(table_meta) = self.catalog.get_table_mut(table)
+                {
+                    table_meta.set_index_root_page_id(*root_id);
+                }
+            }
+            current_idx = current_idx
+                .checked_add(1)
+                .ok_or_else(|| DbError::invalid_operation("row index overflow"))?;
+        }
+
+        if let Some(table_meta) = self.catalog.get_table_mut(table) {
+            table_meta.set_next_row_id(current_idx);
+        }
+        let dirty_pages = self.buffer_pool.dirty_page_ids();
+        for page_id in dirty_pages {
+            self.append_page_write_wal(page_id)?;
+        }
+        let table_meta = self
+            .catalog
+            .get_table(table)
+            .ok_or_else(|| DbError::table_not_found(table))?;
+        let next_row_id = table_meta.next_row_id();
+        let index_root = table_meta.index_root_page_id();
+
+        let payload = Self::encode_table_meta_update(table, next_row_id, index_root)?;
+        let new_lsn = self
+            .current_lsn
+            .checked_add(1)
+            .ok_or_else(|| DbError::invalid_operation("LSN overflow"))?;
+        self.wal
+            .append_wal_record(new_lsn, WalRecordType::TableMetaUpdate, &payload)?;
+        self.current_lsn = new_lsn;
+        Ok(())
+    }
+
+    fn checkpoint(&mut self) -> Result<(), DbError> {
+        Self::checkpoint(self)
+    }
+
+    fn get_row_by_key(&mut self, table: &str, key: &Value) -> Result<Option<Row>, DbError> {
+        if let Some(&root_id) = self.index_data.get(table)
+            && let Some(index_key) = IndexKey::from_value(key)
+            && let Some(row_idx) =
+                BTreeOnDisk::lookup_static(&mut self.buffer_pool, root_id, &index_key)?
+        {
+            let data_page_id = self
+                .table_data
+                .get(table)
+                .map(TableStorage::first_data_page_id)
+                .ok_or_else(|| DbError::table_not_found(table))?;
+            let row_idx_usize = usize::try_from(row_idx)
+                .map_err(|e| DbError::invalid_operation(format!("row index out of range: {e}")))?;
+            return TableStorage::get_row_static(
+                &mut self.buffer_pool,
+                data_page_id,
+                row_idx_usize,
+            );
+        }
+        Ok(None)
     }
 }
 
@@ -122,31 +894,80 @@ impl InMemoryStorage {
     pub fn new() -> Self {
         Self::default()
     }
-}
 
-impl StorageEngine for InMemoryStorage {
-    fn get_catalog(&self) -> &Catalog {
-        &self.catalog
-    }
-
-    fn save_catalog(&mut self, catalog: &Catalog) -> Result<(), DbError> {
+    pub fn save_catalog(&mut self, catalog: &Catalog) -> Result<(), DbError> {
         self.catalog = catalog.clone();
         Ok(())
     }
 
-    fn get_table(&self, name: &str) -> Option<&Table> {
+    #[must_use]
+    pub const fn get_catalog(&self) -> &Catalog {
+        &self.catalog
+    }
+
+    #[must_use]
+    pub fn get_table(&self, name: &str) -> Option<&Table> {
         self.catalog.get_table(name)
     }
 }
 
-fn encode_snapshot(seq: u64, catalog: &Catalog) -> Result<Vec<u8>, DbError> {
-    let mut buf = Vec::with_capacity(64);
-    seq.encode(&mut buf)?;
-    catalog.encode(&mut buf)?;
-    Ok(buf)
+impl StorageEngine for InMemoryStorage {
+    fn create_table(&mut self, schema: TableSchema) -> Result<(), DbError> {
+        self.catalog.create_table(schema)
+    }
+
+    fn drop_table(&mut self, name: &str) -> Result<(), DbError> {
+        self.catalog.drop_table(name)
+    }
+
+    fn rename_table(&mut self, old_name: &str, new_name: &str) -> Result<(), DbError> {
+        self.catalog.rename_table(old_name, new_name)
+    }
+
+    fn insert_row(&mut self, _table: &str, _row: &Row) -> Result<(), DbError> {
+        Err(DbError::unsupported(
+            "row operations not supported in InMemoryStorage",
+        ))
+    }
+
+    fn get_row(&mut self, _table: &str, _row_idx: usize) -> Result<Option<Row>, DbError> {
+        Err(DbError::unsupported(
+            "row operations not supported in InMemoryStorage",
+        ))
+    }
+
+    fn set_cell(
+        &mut self,
+        _table: &str,
+        _row_idx: usize,
+        _col_idx: usize,
+        _value: Value,
+    ) -> Result<(), DbError> {
+        Err(DbError::unsupported(
+            "row operations not supported in InMemoryStorage",
+        ))
+    }
+
+    fn replace_rows(&mut self, _table: &str, _rows: Vec<Row>) -> Result<(), DbError> {
+        Err(DbError::unsupported(
+            "row operations not supported in InMemoryStorage",
+        ))
+    }
+
+    fn checkpoint(&mut self) -> Result<(), DbError> {
+        Ok(())
+    }
+
+    fn get_row_by_key(&mut self, _table: &str, _key: &Value) -> Result<Option<Row>, DbError> {
+        Err(DbError::unsupported(
+            "row operations not supported in InMemoryStorage",
+        ))
+    }
 }
 
 fn decode_snapshot(data: &[u8]) -> Result<(u64, Catalog), DbError> {
+    use crate::serde::Decode;
+    use std::io::Cursor;
     let mut cursor = Cursor::new(data);
     let seq = u64::decode(&mut cursor)?;
     let catalog = Catalog::decode(&mut cursor)?;

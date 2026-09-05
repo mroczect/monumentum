@@ -1,5 +1,6 @@
 use crate::table::Table;
 use alloc::collections::BTreeMap;
+use monumentum_handler::traits::CatalogStore;
 use monumentum_handler::{core::schema::table_schema::TableSchema, error::DbError};
 
 #[derive(Debug, Default, Clone, PartialEq)]
@@ -87,5 +88,19 @@ impl Catalog {
         table.rename_schema(new_name)?;
         let _ = self.tables.insert(new_name.to_string(), table);
         Ok(())
+    }
+}
+
+impl CatalogStore for Catalog {
+    fn create_table(&mut self, schema: TableSchema) -> Result<(), DbError> {
+        Self::create_table(self, schema)
+    }
+
+    fn drop_table(&mut self, name: &str) -> Result<(), DbError> {
+        Self::drop_table(self, name)
+    }
+
+    fn rename_table(&mut self, old_name: &str, new_name: &str) -> Result<(), DbError> {
+        Self::rename_table(self, old_name, new_name)
     }
 }
