@@ -6,6 +6,7 @@ use monumentum_handler::core::schema::column::{ColumnDef, DataType};
 use monumentum_handler::core::schema::table_schema::TableSchema;
 use monumentum_handler::core::value::Value;
 use monumentum_handler::traits::StorageEngine;
+use monumentum_handler::types::Text;
 use std::fs;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -45,10 +46,7 @@ fn test_file_storage_full_workflow() {
 
         let row = Row::new(vec![
             Value::from(1i64),
-            Value::from(
-                monumentum_handler::types::Text::try_new("Alice".to_string())
-                    .unwrap_or_else(|_| unreachable!()),
-            ),
+            Value::from(Text::try_new("Alice".to_string()).unwrap_or_else(|_| unreachable!())),
         ]);
         let insert_result = storage.insert_row("users", &row);
         assert!(insert_result.is_ok());
@@ -78,10 +76,7 @@ fn test_file_storage_reopen_persists_data() {
     let schema = make_schema();
     let row = Row::new(vec![
         Value::from(1i64),
-        Value::from(
-            monumentum_handler::types::Text::try_new("Bob".to_string())
-                .unwrap_or_else(|_| unreachable!()),
-        ),
+        Value::from(Text::try_new("Bob".to_string()).unwrap_or_else(|_| unreachable!())),
     ]);
 
     {
@@ -115,4 +110,47 @@ fn test_file_storage_reopen_persists_data() {
     let _ = fs::remove_file(&path);
     let wal_path = path.with_extension("wal");
     let _ = fs::remove_file(&wal_path);
+}
+
+#[test]
+fn test_crash_recovery_without_checkpoint() {
+    let path = temp_db_path();
+    let schema = make_schema();
+
+    let text_result = Text::try_new("Alice".to_string());
+    assert!(text_result.is_ok());
+    let Ok(text) = text_result else {
+        unreachable!("text creation failed");
+    };
+
+    let row = Row::new(vec![Value::from(1i64), Value::from(text)]);
+
+    {
+        let storage_result = FileStorage::open(&path, 10);
+        assert!(storage_result.is_ok());
+        if let Ok(mut storage) = storage_result {
+            let create_result = storage.create_table(schema);
+            assert!(create_result.is_ok());
+            let insert_result = storage.insert_row("users", &row);
+            assert!(insert_result.is_ok());
+        }
+    }
+
+    {
+        let storage_result = FileStorage::open(&path, 10);
+        assert!(storage_result.is_ok());
+        if let Ok(mut storage) = storage_result {
+            let get_result = storage.get_row("users", 0);
+            assert!(get_result.is_ok());
+            if let Ok(Some(retrieved)) = get_result {
+                assert_eq!(retrieved, row);
+            } else {
+                unreachable!("expected row after crash recovery");
+            }
+        }
+    }
+
+    let _ = fs::remove_file(&path);
+    let wal_path = path.with_extension("wal");
+    let _ = fs::remove_file(wal_path);
 }
