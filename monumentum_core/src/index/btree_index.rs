@@ -1,5 +1,7 @@
 use super::key::IndexKey;
 use alloc::collections::BTreeMap;
+use monumentum_handler::core::value::Value;
+use monumentum_handler::traits::Index;
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct BTreeIndex {
@@ -40,5 +42,24 @@ impl BTreeIndex {
                 let _ = self.map.remove(key);
             }
         }
+    }
+}
+
+impl Index for BTreeIndex {
+    fn insert(&mut self, key: &Value, row_idx: usize) {
+        if let Some(k) = IndexKey::from_value(key) {
+            Self::insert(self, k, row_idx);
+        }
+    }
+
+    fn remove(&mut self, key: &Value, row_idx: usize) {
+        if let Some(k) = IndexKey::from_value(key) {
+            Self::remove(self, &k, row_idx);
+        }
+    }
+
+    fn lookup(&self, key: &Value) -> Option<&[usize]> {
+        let k = IndexKey::from_value(key)?;
+        Self::get_indices(self, &k)
     }
 }
