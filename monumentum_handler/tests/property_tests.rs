@@ -3,14 +3,25 @@ use monumentum_handler::core::value::Value;
 use monumentum_handler::types::{Blob, Integer, Text};
 use monumentum_handler::validation::validate_name;
 use proptest::prelude::*;
+use proptest::test_runner::TestCaseError;
 
-fn valid_string(max_len: usize) -> impl Strategy<Value = String> {
-    proptest::collection::vec(proptest::char::range('a', 'z'), 0..max_len)
+fn valid_string(min_len: usize, max_len: usize) -> impl Strategy<Value = String> {
+    proptest::collection::vec(proptest::char::range('a', 'z'), min_len..max_len)
         .prop_map(|v| v.into_iter().collect::<String>())
 }
 
 fn valid_name() -> impl Strategy<Value = String> {
-    valid_string(MAX_NAME_LENGTH)
+    let first = proptest::char::range('a', 'z');
+    let rest = proptest::collection::vec(
+        proptest::char::range('a', 'z'),
+        0..MAX_NAME_LENGTH.saturating_sub(1),
+    );
+    (first, rest).prop_map(|(first_char, rest_chars)| {
+        let mut s = String::new();
+        s.push(first_char);
+        s.extend(rest_chars);
+        s
+    })
 }
 
 fn too_long_name() -> impl Strategy<Value = String> {
@@ -23,13 +34,13 @@ fn too_long_name() -> impl Strategy<Value = String> {
 
 fn name_with_control() -> impl Strategy<Value = String> {
     let control = proptest::sample::select(vec!['\n', '\t', '\0']);
-    let prefix = valid_string(10);
-    let suffix = valid_string(10);
-    (prefix, control, suffix).prop_map(|(p, c, s)| format!("{}{}{}", p, c, s))
+    let prefix = valid_string(0, 10);
+    let suffix = valid_string(0, 10);
+    (prefix, control, suffix).prop_map(|(p, c, s)| format!("{p}{c}{s}"))
 }
 
 proptest! {
-        #[test]
+    #[test]
     fn prop_integer_roundtrip(i in any::<i64>()) {
         let int = Integer::new(i);
         prop_assert_eq!(int.as_i64(), i);
@@ -38,20 +49,20 @@ proptest! {
         prop_assert_eq!(val.as_i64(), Some(i));
     }
 
-            #[test]
-    fn prop_text_roundtrip(s in valid_string(1000)) {
+    #[test]
+    fn prop_text_roundtrip(s in valid_string(0, 1000)) {
         let text = Text::try_new(s.clone())
-            .map_err(|e| TestCaseError::fail(format!("Text::try_new failed: {}", e)))?;
+            .map_err(|e| TestCaseError::fail(format!("Text::try_new failed: {e}")))?;
         prop_assert_eq!(text.as_str(), s.as_str());
 
         let val = Value::from(text);
         prop_assert_eq!(val.as_str(), Some(s.as_str()));
     }
 
-            #[test]
+    #[test]
     fn prop_blob_roundtrip(v in proptest::collection::vec(any::<u8>(), 0..1000)) {
         let blob = Blob::try_new(v.clone())
-            .map_err(|e| TestCaseError::fail(format!("Blob::try_new failed: {}", e)))?;
+            .map_err(|e| TestCaseError::fail(format!("Blob::try_new failed: {e}")))?;
         prop_assert_eq!(blob.as_slice(), v.as_slice());
 
         let val = Value::from(blob);
@@ -60,22 +71,22 @@ proptest! {
         prop_assert_eq!(extracted.as_slice(), v.as_slice());
     }
 
-        #[test]
+    #[test]
     fn prop_validate_name_valid(name in valid_name()) {
         prop_assert!(validate_name(&name).is_ok());
     }
 
-        #[test]
+    #[test]
     fn prop_validate_name_too_long(name in too_long_name()) {
         prop_assert!(validate_name(&name).is_err());
     }
 
-        #[test]
+    #[test]
     fn prop_validate_name_control_char(name in name_with_control()) {
         prop_assert!(validate_name(&name).is_err());
     }
 
-        #[test]
+    #[test]
     fn prop_checked_ops(a in any::<i64>(), b in any::<i64>()) {
         let ia = Integer::new(a);
         let ib = Integer::new(b);
