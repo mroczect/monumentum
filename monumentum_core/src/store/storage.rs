@@ -69,6 +69,21 @@ impl FileStorage {
         };
 
         storage.apply_wal_records()?;
+        let catalog = Self::load_catalog(&mut storage.buffer_pool, storage.catalog_page_id)?;
+        storage.catalog = catalog;
+
+        storage.table_data.clear();
+        storage.index_data.clear();
+        for (name, table) in storage.catalog.tables() {
+            if let Some(id) = table.data_page_id() {
+                let _ = storage
+                    .table_data
+                    .insert(name.to_string(), TableStorage::from_first_page_id(id));
+            }
+            if let Some(root_id) = table.index_root_page_id() {
+                let _ = storage.index_data.insert(name.to_string(), root_id);
+            }
+        }
         storage.checkpoint()?;
 
         Ok(storage)
