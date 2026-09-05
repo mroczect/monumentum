@@ -3,7 +3,33 @@ use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
 use core::fmt;
 
-use super::{AggregateFunction, ScalarFunction};
+use crate::functions::{
+    AggregateFunction, ScalarFunction,
+    aggregate::{
+        avg::AvgFunction,
+        count::CountFunction,
+        extras::{
+            GroupConcatFunction, MedianFunction, PercentileContFunction, PercentileDiscFunction,
+            StringAggFunction, TotalFunction,
+        },
+        max::MaxFunction,
+        min::MinFunction,
+        sum::SumFunction,
+    },
+    scalar::{
+        concat::ConcatFunction,
+        length::LengthFunction,
+        lower::LowerFunction,
+        math::{
+            AcosFunction, AcoshFunction, AsinFunction, AsinhFunction, Atan2Function, AtanFunction,
+            AtanhFunction, CeilFunction, CeilingFunction, CosFunction, CoshFunction,
+            DegreesFunction, ExpFunction, FloorFunction, LnFunction, Log2Function, Log10Function,
+            LogFunction, ModFunction, PiFunction, PowFunction, PowerFunction, RadiansFunction,
+            SinFunction, SinhFunction, SqrtFunction, TanFunction, TanhFunction, TruncFunction,
+        },
+        upper::UpperFunction,
+    },
+};
 
 #[derive(Default)]
 pub struct FunctionRegistry {
@@ -15,21 +41,53 @@ impl FunctionRegistry {
     #[must_use]
     pub fn new() -> Self {
         let mut registry = Self::default();
-        registry.register_scalar(Box::new(super::UpperFunction));
-        registry.register_scalar(Box::new(super::LowerFunction));
-        registry.register_scalar(Box::new(super::LengthFunction));
-        registry.register_scalar(Box::new(super::ConcatFunction));
-        registry.register_aggregate(Box::new(super::CountFunction));
-        registry.register_aggregate(Box::new(super::SumFunction));
-        registry.register_aggregate(Box::new(super::AvgFunction));
-        registry.register_aggregate(Box::new(super::MinFunction));
-        registry.register_aggregate(Box::new(super::MaxFunction));
-        registry.register_aggregate(Box::new(super::GroupConcatFunction::default()));
-        registry.register_aggregate(Box::new(super::StringAggFunction::default()));
-        registry.register_aggregate(Box::new(super::TotalFunction));
-        registry.register_aggregate(Box::new(super::MedianFunction));
-        registry.register_aggregate(Box::new(super::PercentileContFunction::new(0.5)));
-        registry.register_aggregate(Box::new(super::PercentileDiscFunction::new(0.5)));
+
+        registry.register_scalar(Box::new(UpperFunction));
+        registry.register_scalar(Box::new(LowerFunction));
+        registry.register_scalar(Box::new(LengthFunction));
+        registry.register_scalar(Box::new(ConcatFunction));
+        registry.register_scalar(Box::new(AcosFunction));
+        registry.register_scalar(Box::new(AcoshFunction));
+        registry.register_scalar(Box::new(AsinFunction));
+        registry.register_scalar(Box::new(AsinhFunction));
+        registry.register_scalar(Box::new(AtanFunction));
+        registry.register_scalar(Box::new(Atan2Function));
+        registry.register_scalar(Box::new(AtanhFunction));
+        registry.register_scalar(Box::new(CeilFunction));
+        registry.register_scalar(Box::new(CeilingFunction));
+        registry.register_scalar(Box::new(CosFunction));
+        registry.register_scalar(Box::new(CoshFunction));
+        registry.register_scalar(Box::new(DegreesFunction));
+        registry.register_scalar(Box::new(ExpFunction));
+        registry.register_scalar(Box::new(FloorFunction));
+        registry.register_scalar(Box::new(LnFunction));
+        registry.register_scalar(Box::new(LogFunction));
+        registry.register_scalar(Box::new(Log10Function));
+        registry.register_scalar(Box::new(Log2Function));
+        registry.register_scalar(Box::new(ModFunction));
+        registry.register_scalar(Box::new(PiFunction));
+        registry.register_scalar(Box::new(PowFunction));
+        registry.register_scalar(Box::new(PowerFunction));
+        registry.register_scalar(Box::new(RadiansFunction));
+        registry.register_scalar(Box::new(SinFunction));
+        registry.register_scalar(Box::new(SinhFunction));
+        registry.register_scalar(Box::new(SqrtFunction));
+        registry.register_scalar(Box::new(TanFunction));
+        registry.register_scalar(Box::new(TanhFunction));
+        registry.register_scalar(Box::new(TruncFunction));
+
+        registry.register_aggregate(Box::new(CountFunction));
+        registry.register_aggregate(Box::new(SumFunction));
+        registry.register_aggregate(Box::new(AvgFunction));
+        registry.register_aggregate(Box::new(MinFunction));
+        registry.register_aggregate(Box::new(MaxFunction));
+        registry.register_aggregate(Box::new(GroupConcatFunction::default()));
+        registry.register_aggregate(Box::new(StringAggFunction::default()));
+        registry.register_aggregate(Box::new(TotalFunction));
+        registry.register_aggregate(Box::new(MedianFunction));
+        registry.register_aggregate(Box::new(PercentileContFunction::new(0.5)));
+        registry.register_aggregate(Box::new(PercentileDiscFunction::new(0.5)));
+
         registry
     }
 
