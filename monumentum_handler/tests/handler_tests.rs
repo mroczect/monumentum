@@ -101,6 +101,12 @@ impl StorageEngine for InMemoryEngine {
     fn checkpoint(&mut self) -> Result<(), DbError> {
         Ok(())
     }
+
+    fn get_row_by_key(&mut self, _table: &str, _key: &Value) -> Result<Option<Row>, DbError> {
+        Err(DbError::unsupported(
+            "get_row_by_key not implemented in InMemoryEngine",
+        ))
+    }
 }
 
 #[test]
