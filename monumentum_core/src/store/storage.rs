@@ -498,29 +498,6 @@ impl FileStorage {
     pub fn get_table(&self, name: &str) -> Option<&Table> {
         self.catalog.get_table(name)
     }
-
-    pub fn get_row_by_key(&mut self, table: &str, key: &Value) -> Result<Option<Row>, DbError> {
-        if let Some(&root_id) = self.index_data.get(table)
-            && let Some(index_key) = IndexKey::from_value(key)
-            && let Some(row_idx) =
-                BTreeOnDisk::lookup_static(&mut self.buffer_pool, root_id, &index_key)?
-        {
-            let data_page_id = self
-                .table_data
-                .get(table)
-                .map(TableStorage::first_data_page_id)
-                .ok_or_else(|| DbError::table_not_found(table))?;
-            let row_idx_usize = usize::try_from(row_idx).map_err(|e| {
-                DbError::invalid_operation(format!("row index out of range for platform: {e}"))
-            })?;
-            return TableStorage::get_row_static(
-                &mut self.buffer_pool,
-                data_page_id,
-                row_idx_usize,
-            );
-        }
-        Ok(None)
-    }
 }
 
 impl StorageEngine for FileStorage {
@@ -640,6 +617,28 @@ impl StorageEngine for FileStorage {
     fn checkpoint(&mut self) -> Result<(), DbError> {
         Self::checkpoint(self)
     }
+
+    fn get_row_by_key(&mut self, table: &str, key: &Value) -> Result<Option<Row>, DbError> {
+        if let Some(&root_id) = self.index_data.get(table)
+            && let Some(index_key) = IndexKey::from_value(key)
+            && let Some(row_idx) =
+                BTreeOnDisk::lookup_static(&mut self.buffer_pool, root_id, &index_key)?
+        {
+            let data_page_id = self
+                .table_data
+                .get(table)
+                .map(TableStorage::first_data_page_id)
+                .ok_or_else(|| DbError::table_not_found(table))?;
+            let row_idx_usize = usize::try_from(row_idx)
+                .map_err(|e| DbError::invalid_operation(format!("row index out of range: {e}")))?;
+            return TableStorage::get_row_static(
+                &mut self.buffer_pool,
+                data_page_id,
+                row_idx_usize,
+            );
+        }
+        Ok(None)
+    }
 }
 
 #[derive(Debug, Default)]
@@ -714,6 +713,12 @@ impl StorageEngine for InMemoryStorage {
 
     fn checkpoint(&mut self) -> Result<(), DbError> {
         Ok(())
+    }
+
+    fn get_row_by_key(&mut self, _table: &str, _key: &Value) -> Result<Option<Row>, DbError> {
+        Err(DbError::unsupported(
+            "row operations not supported in InMemoryStorage",
+        ))
     }
 }
 
