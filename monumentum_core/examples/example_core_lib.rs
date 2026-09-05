@@ -5,6 +5,7 @@ use monumentum_core::serde::{decode_catalog, encode_catalog};
 use monumentum_core::store::storage::FileStorage;
 use monumentum_handler::core::schema::column::{ColumnDef, DataType};
 use monumentum_handler::core::schema::table_schema::TableSchema;
+use proptest as _;
 
 fn main() -> Result<(), Box<dyn Error>> {
     let schema = TableSchema::try_new(
