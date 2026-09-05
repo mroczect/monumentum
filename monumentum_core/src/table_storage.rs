@@ -230,6 +230,11 @@ impl TableStorage {
         page.data[4..8].copy_from_slice(&len_u32.to_le_bytes());
         Ok(())
     }
+
+    #[must_use]
+    pub const fn from_first_page_id(first_data_page_id: u32) -> Self {
+        Self { first_data_page_id }
+    }
 }
 
 impl TableStore for TableStorage {
