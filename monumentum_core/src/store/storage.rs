@@ -41,6 +41,13 @@ impl FileStorage {
             Self::load_or_init_meta(&mut buffer_pool)?;
         let catalog = Self::load_catalog(&mut buffer_pool, catalog_page_id)?;
 
+        let mut table_data = BTreeMap::new();
+        for (name, table) in catalog.tables() {
+            if let Some(id) = table.data_page_id() {
+                let _ = table_data.insert(name.to_string(), TableStorage::from_first_page_id(id));
+            }
+        }
+
         let mut storage = Self {
             wal,
             buffer_pool,
@@ -48,7 +55,7 @@ impl FileStorage {
             current_lsn,
             catalog_page_id,
             last_checkpoint_lsn,
-            table_data: BTreeMap::new(),
+            table_data,
         };
 
         storage.apply_wal_records()?;
@@ -458,19 +465,33 @@ impl FileStorage {
 
 impl StorageEngine for FileStorage {
     fn create_table(&mut self, schema: TableSchema) -> Result<(), DbError> {
+        let name = schema.name().to_string();
         self.catalog.create_table(schema)?;
+
+        let table_storage = TableStorage::new(&mut self.buffer_pool)?;
+        let first_page_id = table_storage.first_data_page_id();
+        let _ = self.table_data.insert(name.clone(), table_storage);
+
+        if let Some(table) = self.catalog.get_table_mut(&name) {
+            table.set_data_page_id(first_page_id);
+        }
+
         let catalog = self.catalog.clone();
         self.write_catalog_to_pages(&catalog)
     }
 
     fn drop_table(&mut self, name: &str) -> Result<(), DbError> {
         self.catalog.drop_table(name)?;
+        let _ = self.table_data.remove(name);
         let catalog = self.catalog.clone();
         self.write_catalog_to_pages(&catalog)
     }
 
     fn rename_table(&mut self, old_name: &str, new_name: &str) -> Result<(), DbError> {
         self.catalog.rename_table(old_name, new_name)?;
+        if let Some(storage) = self.table_data.remove(old_name) {
+            let _ = self.table_data.insert(new_name.to_string(), storage);
+        }
         let catalog = self.catalog.clone();
         self.write_catalog_to_pages(&catalog)
     }
