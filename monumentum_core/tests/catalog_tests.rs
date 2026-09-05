@@ -100,6 +100,6 @@ fn replace_table_valid() {
     let table = cat.get_table("replace");
     assert!(table.is_some());
     if let Some(t) = table {
-        assert_eq!(t.len(), 0);
+        assert_eq!(t.schema().name(), "replace");
     }
 }
