@@ -882,6 +882,18 @@ impl StorageEngine for FileStorage {
         }
         Ok(None)
     }
+
+    fn get_all_rows(&mut self, table: &str) -> Result<Vec<Row>, DbError> {
+        let mut rows = Vec::new();
+        let mut idx = 0usize;
+        while let Some(row) = self.get_row(table, idx)? {
+            rows.push(row);
+            idx = idx
+                .checked_add(1)
+                .ok_or_else(|| DbError::invalid_operation("row index overflow"))?;
+        }
+        Ok(rows)
+    }
 }
 
 #[derive(Debug, Default)]
@@ -959,6 +971,12 @@ impl StorageEngine for InMemoryStorage {
     }
 
     fn get_row_by_key(&mut self, _table: &str, _key: &Value) -> Result<Option<Row>, DbError> {
+        Err(DbError::unsupported(
+            "row operations not supported in InMemoryStorage",
+        ))
+    }
+
+    fn get_all_rows(&mut self, _table: &str) -> Result<Vec<Row>, DbError> {
         Err(DbError::unsupported(
             "row operations not supported in InMemoryStorage",
         ))

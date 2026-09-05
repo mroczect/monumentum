@@ -262,7 +262,7 @@ fn test_rename_table(storage: &mut FileStorage) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn test_get_catalog(storage: &mut FileStorage) -> Result<(), Box<dyn Error>> {
+fn test_get_catalog(storage: &FileStorage) {
     println!("[CASE 11] Verify catalog contents");
     let catalog = storage.get_catalog();
     let table = catalog.get_table("employees");
@@ -275,7 +275,6 @@ fn test_get_catalog(storage: &mut FileStorage) -> Result<(), Box<dyn Error>> {
         assert_eq!(table.schema().columns().len(), 3);
     }
     println!("  OK: Catalog verified");
-    Ok(())
 }
 
 fn test_drop_table(storage: &mut FileStorage) -> Result<(), Box<dyn Error>> {
@@ -402,7 +401,7 @@ fn run_storage_tests(path: &Path) -> Result<(), Box<dyn Error>> {
     test_replace_rows(&mut storage)?;
     test_delete_row_via_replace(&mut storage)?;
     test_rename_table(&mut storage)?;
-    test_get_catalog(&mut storage)?;
+    test_get_catalog(&storage);
     test_drop_table(&mut storage)?;
     test_drop_missing_table(&mut storage)?;
     test_missing_table_error(&mut storage)?;

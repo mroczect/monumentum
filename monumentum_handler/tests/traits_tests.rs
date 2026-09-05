@@ -162,6 +162,18 @@ impl StorageEngine for MockStorage {
             "get_row_by_key not implemented in InMemoryEngine",
         ))
     }
+
+    fn get_all_rows(&mut self, table: &str) -> Result<Vec<Row>, DbError> {
+        let mut rows = Vec::new();
+        let mut idx = 0usize;
+        while let Some(row) = self.get_row(table, idx)? {
+            rows.push(row);
+            idx = idx
+                .checked_add(1)
+                .ok_or_else(|| DbError::invalid_operation("row index overflow"))?;
+        }
+        Ok(rows)
+    }
 }
 
 #[derive(Default)]

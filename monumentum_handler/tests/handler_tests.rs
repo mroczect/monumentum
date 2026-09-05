@@ -107,6 +107,12 @@ impl StorageEngine for InMemoryEngine {
             "get_row_by_key not implemented in InMemoryEngine",
         ))
     }
+
+    fn get_all_rows(&mut self, _table: &str) -> Result<Vec<Row>, DbError> {
+        Err(DbError::unsupported(
+            "row operations not supported in InMemoryStorage",
+        ))
+    }
 }
 
 #[test]

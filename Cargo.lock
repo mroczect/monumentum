@@ -112,6 +112,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "monumentum_dsl"
+version = "0.1.0"
+dependencies = [
+ "monumentum_core",
+ "monumentum_handler",
+]
+
+[[package]]
 name = "monumentum_handler"
 version = "0.1.0"
 dependencies = [
