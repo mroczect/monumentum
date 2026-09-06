@@ -518,9 +518,13 @@ pub(crate) fn format_julianday(tp: &TimeParts) -> f64 {
 }
 
 pub(crate) fn format_unixepoch(tp: &TimeParts, subsec: bool) -> f64 {
-    let jd = to_julian_day(tp);
-    let unix = (jd - 2_440_587.5) * 86_400.0;
-    if subsec { unix } else { unix.floor() }
+    let days_since_epoch = to_jdn(tp.year, tp.month, tp.day) - to_jdn(1970, 1, 1);
+    let seconds = days_since_epoch as f64 * 86_400.0
+        + f64::from(tp.hour * 3600)
+        + f64::from(tp.minute * 60)
+        + f64::from(tp.second)
+        + tp.fractional;
+    if subsec { seconds } else { seconds.floor() }
 }
 
 pub(crate) fn strftime(format: &str, tp: &TimeParts) -> Option<String> {
