@@ -8,19 +8,16 @@ use std::sync::OnceLock;
 use crate::functions::{
     AggregateFunction, ScalarFunction,
     aggregate::{
-        avg::AvgFunction,
-        count::CountFunction,
-        max::MaxFunction,
-        min::MinFunction,
+        avg::AvgFunction, count::CountFunction, max::MaxFunction, min::MinFunction,
         sum::SumFunction,
-    },
-    extras::{
-        GroupConcatFunction, MedianFunction, PercentileContFunction, PercentileDiscFunction,
-        StringAggFunction, TotalFunction,
     },
     datetime::{
         DateFunction, DatetimeFunction, JuliandayFunction, StrftimeFunction, TimeFunction,
         TimediffFunction, UnixepochFunction,
+    },
+    extras::{
+        GroupConcatFunction, MedianFunction, PercentileContFunction, PercentileDiscFunction,
+        StringAggFunction, TotalFunction,
     },
     math::{
         AcosFunction, AcoshFunction, AsinFunction, AsinhFunction, Atan2Function, AtanFunction,
