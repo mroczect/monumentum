@@ -1,4 +1,3 @@
-
 #![allow(clippy::all)]
 use monumentum_handler::core::value::Value;
 use monumentum_handler::error::DbError;

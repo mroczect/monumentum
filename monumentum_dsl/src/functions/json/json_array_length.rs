@@ -3,7 +3,7 @@ use monumentum_handler::core::value::Value;
 use monumentum_handler::error::DbError;
 
 use crate::functions::ScalarFunction;
-use crate::functions::json::{extract_path, parse_json, JsonValue};
+use crate::functions::json::{JsonValue, extract_path, parse_json};
 
 #[derive(Debug, Clone, Copy)]
 pub struct JsonArrayLengthFunction;
