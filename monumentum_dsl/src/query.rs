@@ -1,14 +1,25 @@
+use alloc::boxed::Box;
+use alloc::string::String;
+use alloc::vec::Vec;
 use core::cmp::Ordering;
 use core::fmt;
 use monumentum_handler::core::row::Row;
 use monumentum_handler::core::value::Value;
 use monumentum_handler::error::DbError;
 use monumentum_handler::traits::StorageEngine;
+use std::collections::HashMap;
+use std::sync::OnceLock;
 
 type RowFilter<'a> = Box<dyn Fn(&Row) -> Result<bool, DbError> + 'a>;
 type RowSort<'a> = Box<dyn Fn(&Row, &Row) -> Ordering + 'a>;
 type ValueFilter<'a, T> = Box<dyn Fn(&T) -> Result<bool, DbError> + 'a>;
 type ValueSort<'a, T> = Box<dyn Fn(&T, &T) -> Ordering + 'a>;
+
+static FUNCTION_REGISTRY: OnceLock<crate::functions::FunctionRegistry> = OnceLock::new();
+
+fn get_registry() -> &'static crate::functions::FunctionRegistry {
+    FUNCTION_REGISTRY.get_or_init(crate::functions::FunctionRegistry::new)
+}
 
 pub struct QueryBuilder<'a> {
     table: String,
@@ -72,12 +83,26 @@ impl<'a> QueryBuilder<'a> {
 
     #[must_use]
     pub fn limit(mut self, n: usize) -> Self {
+        if let Some(pos) = self
+            .operations
+            .iter()
+            .position(|op| matches!(op, RowOperation::Limit(_)))
+        {
+            self.operations.remove(pos);
+        }
         self.operations.push(RowOperation::Limit(n));
         self
     }
 
     #[must_use]
     pub fn offset(mut self, n: usize) -> Self {
+        if let Some(pos) = self
+            .operations
+            .iter()
+            .position(|op| matches!(op, RowOperation::Offset(_)))
+        {
+            self.operations.remove(pos);
+        }
         self.operations.push(RowOperation::Offset(n));
         self
     }
@@ -116,32 +141,33 @@ impl<'a> QueryBuilder<'a> {
     where
         F: Fn(&Row) -> Result<Value, DbError> + 'a,
     {
-        let registry = crate::functions::FunctionRegistry::new();
-        let agg = registry.get_aggregate(name).ok_or_else(|| {
+        let agg = get_registry().get_aggregate(name).ok_or_else(|| {
             DbError::unsupported(format!("aggregate function '{name}' not found"))
         })?;
         self.aggregate(agg, extractor)
     }
+
     pub fn group_by<F>(self, key_fn: F) -> Result<Vec<(Value, Vec<Row>)>, DbError>
     where
         F: Fn(&Row) -> Result<Value, DbError> + 'a,
     {
         let rows = self.collect_rows()?;
-        let mut groups: Vec<(Value, Vec<Row>)> = Vec::new();
+        let mut groups_map: HashMap<String, (Value, Vec<Row>)> = HashMap::new();
 
         for row in rows {
             let key = key_fn(&row)?;
-            if let Some((_, group_rows)) = groups
-                .iter_mut()
-                .find(|(existing_key, _)| *existing_key == key)
-            {
-                group_rows.push(row);
-            } else {
-                groups.push((key, alloc::vec![row]));
-            }
+            let key_str = format!("{:?}", key);
+            groups_map
+                .entry(key_str)
+                .or_insert_with(|| (key.clone(), Vec::new()))
+                .1
+                .push(row);
         }
 
-        Ok(groups)
+        Ok(groups_map
+            .into_iter()
+            .map(|(_, (key, rows))| (key, rows))
+            .collect())
     }
 
     pub fn join_inner<LF, RF>(
@@ -156,7 +182,6 @@ impl<'a> QueryBuilder<'a> {
     {
         let right_rows = self.storage.get_all_rows(right_table)?;
         let left_rows = self.collect_rows()?;
-
         let mut result = Vec::new();
 
         for left in &left_rows {
@@ -170,13 +195,13 @@ impl<'a> QueryBuilder<'a> {
                 }
             }
         }
-
         Ok(result)
     }
 
     pub fn join_left<LF, RF>(
         self,
         right_table: &str,
+        right_column_count: usize,
         left_key_fn: LF,
         right_key_fn: RF,
     ) -> Result<Vec<Row>, DbError>
@@ -186,7 +211,6 @@ impl<'a> QueryBuilder<'a> {
     {
         let right_rows = self.storage.get_all_rows(right_table)?;
         let left_rows = self.collect_rows()?;
-
         let mut result = Vec::new();
 
         for left in &left_rows {
@@ -205,13 +229,11 @@ impl<'a> QueryBuilder<'a> {
 
             if !found_match {
                 let mut combined_values = left.values().to_vec();
-                let extra_len = right_rows.first().map_or(0, Row::len);
-                let new_len = combined_values.len().saturating_add(extra_len);
+                let new_len = combined_values.len().saturating_add(right_column_count);
                 combined_values.resize(new_len, Value::Null);
                 result.push(Row::new(combined_values));
             }
         }
-
         Ok(result)
     }
 
@@ -222,27 +244,52 @@ impl<'a> QueryBuilder<'a> {
     fn collect_rows(self) -> Result<Vec<Row>, DbError> {
         let mut rows = self.storage.get_all_rows(&self.table)?;
 
+        let mut filters: Vec<RowFilter<'a>> = Vec::new();
+        let mut sorts: Vec<RowSort<'a>> = Vec::new();
+        let mut limit: Option<usize> = None;
+        let mut offset: Option<usize> = None;
+
         for op in self.operations {
             match op {
-                RowOperation::Filter(f) => {
-                    let mut filtered = Vec::with_capacity(rows.len());
-                    for row in rows {
-                        if f(&row)? {
-                            filtered.push(row);
-                        }
-                    }
-                    rows = filtered;
-                }
-                RowOperation::Sort(cmp) => rows.sort_by(|a, b| cmp(a, b)),
-                RowOperation::Limit(n) => rows.truncate(n),
-                RowOperation::Offset(n) => {
-                    if n >= rows.len() {
-                        rows.clear();
-                    } else {
-                        let _ = rows.drain(0..n);
-                    }
+                RowOperation::Filter(f) => filters.push(f),
+                RowOperation::Sort(s) => sorts.push(s),
+                RowOperation::Limit(n) => limit = Some(n),
+                RowOperation::Offset(n) => offset = Some(n),
+            }
+        }
+
+        for filter in filters {
+            let mut filtered = Vec::with_capacity(rows.len());
+            for row in rows {
+                if filter(&row)? {
+                    filtered.push(row);
                 }
             }
+            rows = filtered;
+        }
+
+        if !sorts.is_empty() {
+            rows.sort_by(|a, b| {
+                for sort_fn in &sorts {
+                    match sort_fn(a, b) {
+                        Ordering::Equal => continue,
+                        non_eq => return non_eq,
+                    }
+                }
+                Ordering::Equal
+            });
+        }
+
+        if let Some(offset_count) = offset {
+            if offset_count >= rows.len() {
+                rows.clear();
+            } else {
+                let _ = rows.drain(0..offset_count);
+            }
+        }
+
+        if let Some(limit_count) = limit {
+            rows.truncate(limit_count);
         }
 
         Ok(rows)
@@ -303,12 +350,26 @@ impl<'a, T> ProjectedQueryBuilder<'a, T> {
 
     #[must_use]
     pub fn limit(mut self, n: usize) -> Self {
+        if let Some(pos) = self
+            .operations
+            .iter()
+            .position(|op| matches!(op, ProjectedOperation::Limit(_)))
+        {
+            self.operations.remove(pos);
+        }
         self.operations.push(ProjectedOperation::Limit(n));
         self
     }
 
     #[must_use]
     pub fn offset(mut self, n: usize) -> Self {
+        if let Some(pos) = self
+            .operations
+            .iter()
+            .position(|op| matches!(op, ProjectedOperation::Offset(_)))
+        {
+            self.operations.remove(pos);
+        }
         self.operations.push(ProjectedOperation::Offset(n));
         self
     }
@@ -316,27 +377,52 @@ impl<'a, T> ProjectedQueryBuilder<'a, T> {
     pub fn execute(self) -> Result<Vec<T>, DbError> {
         let mut items = self.items;
 
+        let mut filters: Vec<ValueFilter<'a, T>> = Vec::new();
+        let mut sorts: Vec<ValueSort<'a, T>> = Vec::new();
+        let mut limit: Option<usize> = None;
+        let mut offset: Option<usize> = None;
+
         for op in self.operations {
             match op {
-                ProjectedOperation::Filter(f) => {
-                    let mut filtered = Vec::with_capacity(items.len());
-                    for item in items {
-                        if f(&item)? {
-                            filtered.push(item);
-                        }
-                    }
-                    items = filtered;
-                }
-                ProjectedOperation::Sort(cmp) => items.sort_by(|a, b| cmp(a, b)),
-                ProjectedOperation::Limit(n) => items.truncate(n),
-                ProjectedOperation::Offset(n) => {
-                    if n >= items.len() {
-                        items.clear();
-                    } else {
-                        let _ = items.drain(0..n);
-                    }
+                ProjectedOperation::Filter(f) => filters.push(f),
+                ProjectedOperation::Sort(s) => sorts.push(s),
+                ProjectedOperation::Limit(n) => limit = Some(n),
+                ProjectedOperation::Offset(n) => offset = Some(n),
+            }
+        }
+
+        for filter in filters {
+            let mut filtered = Vec::with_capacity(items.len());
+            for item in items {
+                if filter(&item)? {
+                    filtered.push(item);
                 }
             }
+            items = filtered;
+        }
+
+        if !sorts.is_empty() {
+            items.sort_by(|a, b| {
+                for sort_fn in &sorts {
+                    match sort_fn(a, b) {
+                        Ordering::Equal => continue,
+                        non_eq => return non_eq,
+                    }
+                }
+                Ordering::Equal
+            });
+        }
+
+        if let Some(offset_count) = offset {
+            if offset_count >= items.len() {
+                items.clear();
+            } else {
+                let _ = items.drain(0..offset_count);
+            }
+        }
+
+        if let Some(limit_count) = limit {
+            items.truncate(limit_count);
         }
 
         Ok(items)
