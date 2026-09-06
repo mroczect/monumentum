@@ -28,6 +28,10 @@ struct AvgAccumulator {
 
 impl Accumulator for AvgAccumulator {
     fn update(&mut self, value: &Value) -> Result<(), DbError> {
+        if matches!(value, Value::Null) {
+            return Ok(());
+        }
+
         if let Some(i) = value.as_i64() {
             self.sum = self
                 .sum
