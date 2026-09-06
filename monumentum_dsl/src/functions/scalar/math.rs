@@ -91,8 +91,12 @@ impl ScalarFunction for Atan2Function {
         if args.len() != 2 {
             return Ok(Value::Null);
         }
-        let y = args.first().and_then(value_to_f64).unwrap_or(0.0_f64);
-        let x = args.get(1).and_then(value_to_f64).unwrap_or(0.0_f64);
+        let Some(y) = args.first().and_then(value_to_f64) else {
+            return Ok(Value::Null);
+        };
+        let Some(x) = args.get(1).and_then(value_to_f64) else {
+            return Ok(Value::Null);
+        };
         let result = y.atan2(x);
         if result.is_finite() {
             Value::try_from(result)
@@ -114,8 +118,12 @@ impl ScalarFunction for ModFunction {
         if args.len() != 2 {
             return Ok(Value::Null);
         }
-        let x = args.first().and_then(value_to_f64).unwrap_or(0.0_f64);
-        let y = args.get(1).and_then(value_to_f64).unwrap_or(0.0_f64);
+        let Some(x) = args.first().and_then(value_to_f64) else {
+            return Ok(Value::Null);
+        };
+        let Some(y) = args.get(1).and_then(value_to_f64) else {
+            return Ok(Value::Null);
+        };
         if y == 0.0 {
             return Ok(Value::Null);
         }
@@ -140,8 +148,12 @@ impl ScalarFunction for PowFunction {
         if args.len() != 2 {
             return Ok(Value::Null);
         }
-        let x = args.first().and_then(value_to_f64).unwrap_or(0.0_f64);
-        let y = args.get(1).and_then(value_to_f64).unwrap_or(0.0_f64);
+        let Some(x) = args.first().and_then(value_to_f64) else {
+            return Ok(Value::Null);
+        };
+        let Some(y) = args.get(1).and_then(value_to_f64) else {
+            return Ok(Value::Null);
+        };
         let result = x.powf(y);
         if result.is_finite() {
             Value::try_from(result)
@@ -163,8 +175,12 @@ impl ScalarFunction for PowerFunction {
         if args.len() != 2 {
             return Ok(Value::Null);
         }
-        let x = args.first().and_then(value_to_f64).unwrap_or(0.0_f64);
-        let y = args.get(1).and_then(value_to_f64).unwrap_or(0.0_f64);
+        let Some(x) = args.first().and_then(value_to_f64) else {
+            return Ok(Value::Null);
+        };
+        let Some(y) = args.get(1).and_then(value_to_f64) else {
+            return Ok(Value::Null);
+        };
         let result = x.powf(y);
         if result.is_finite() {
             Value::try_from(result)
@@ -185,7 +201,9 @@ impl ScalarFunction for LogFunction {
     fn call(&self, args: &[Value]) -> Result<Value, DbError> {
         match args.len() {
             1 => {
-                let x = args.first().and_then(value_to_f64).unwrap_or(0.0_f64);
+                let Some(x) = args.first().and_then(value_to_f64) else {
+                    return Ok(Value::Null);
+                };
                 let result = x.log10();
                 if result.is_finite() {
                     Value::try_from(result)
@@ -194,8 +212,12 @@ impl ScalarFunction for LogFunction {
                 }
             }
             2 => {
-                let b = args.first().and_then(value_to_f64).unwrap_or(0.0_f64);
-                let x = args.get(1).and_then(value_to_f64).unwrap_or(0.0_f64);
+                let Some(b) = args.first().and_then(value_to_f64) else {
+                    return Ok(Value::Null);
+                };
+                let Some(x) = args.get(1).and_then(value_to_f64) else {
+                    return Ok(Value::Null);
+                };
                 if b <= 0.0 || (b - 1.0).abs() < f64::EPSILON || x <= 0.0 {
                     return Ok(Value::Null);
                 }

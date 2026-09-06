@@ -16,7 +16,7 @@ impl ScalarFunction for LengthFunction {
             .first()
             .ok_or_else(|| DbError::invalid_operation("length expects one argument"))?;
         let len = match arg {
-            Value::Text(t) => i64::try_from(t.len())
+            Value::Text(t) => i64::try_from(t.as_str().chars().count())
                 .map_err(|e| DbError::invalid_operation(format!("length overflow: {e}")))?,
             Value::Blob(b) => i64::try_from(b.len())
                 .map_err(|e| DbError::invalid_operation(format!("length overflow: {e}")))?,

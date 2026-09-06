@@ -6,8 +6,6 @@ use monumentum_handler::error::DbError;
 
 use crate::functions::{Accumulator, AggregateFunction};
 
-// ============ Group Concat ============
-
 #[derive(Debug, Clone)]
 pub struct GroupConcatFunction {
     separator: String,
@@ -49,6 +47,10 @@ struct GroupConcatAccumulator {
 
 impl Accumulator for GroupConcatAccumulator {
     fn update(&mut self, value: &Value) -> Result<(), DbError> {
+        if matches!(value, Value::Null) {
+            return Ok(());
+        }
+
         if let Some(s) = value.as_str() {
             self.values.push(s.to_string());
             Ok(())

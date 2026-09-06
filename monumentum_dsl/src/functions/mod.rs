@@ -2,7 +2,11 @@ use alloc::boxed::Box;
 
 use monumentum_handler::core::value::Value;
 use monumentum_handler::error::DbError;
+pub mod json;
+pub use json::*;
 
+pub mod window;
+pub use window::*;
 #[allow(clippy::redundant_pub_crate)]
 pub(crate) mod aggregate;
 mod registry;
