@@ -31,11 +31,11 @@ impl WindowFunction for NthValueFunction {
             return Err(DbError::invalid_operation("nth_value N must be positive"));
         }
         let n_idx = usize::try_from(n.saturating_sub(1))
-            .map_err(|_| DbError::invalid_operation("N too large"))?;
+            .map_err(|_e| DbError::invalid_operation("N too large"))?;
         if n_idx >= partition.len() {
             return Ok(Value::Null);
         }
-        args.get(0)
+        args.first()
             .cloned()
             .ok_or_else(|| DbError::invalid_operation("first argument missing"))
     }

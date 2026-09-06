@@ -20,7 +20,7 @@ impl WindowFunction for RowNumberFunction {
         _order_values: &[Option<Value>],
     ) -> Result<Value, DbError> {
         let num = i64::try_from(current_idx)
-            .map_err(|_| DbError::invalid_operation("row index too large"))?
+            .map_err(|_e| DbError::invalid_operation("row index too large"))?
             .checked_add(1)
             .ok_or_else(|| DbError::invalid_operation("row number overflow"))?;
         Ok(Value::from(num))
