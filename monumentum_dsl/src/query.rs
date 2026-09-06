@@ -88,7 +88,7 @@ impl<'a> QueryBuilder<'a> {
             .iter()
             .position(|op| matches!(op, RowOperation::Limit(_)))
         {
-            self.operations.remove(pos);
+            let _ = self.operations.remove(pos);
         }
         self.operations.push(RowOperation::Limit(n));
         self
@@ -101,7 +101,7 @@ impl<'a> QueryBuilder<'a> {
             .iter()
             .position(|op| matches!(op, RowOperation::Offset(_)))
         {
-            self.operations.remove(pos);
+            let _ = self.operations.remove(pos);
         }
         self.operations.push(RowOperation::Offset(n));
         self
@@ -271,9 +271,9 @@ impl<'a> QueryBuilder<'a> {
         if !sorts.is_empty() {
             rows.sort_by(|a, b| {
                 for sort_fn in &sorts {
-                    match sort_fn(a, b) {
-                        Ordering::Equal => continue,
-                        non_eq => return non_eq,
+                    let ord = sort_fn(a, b);
+                    if ord != Ordering::Equal {
+                        return ord;
                     }
                 }
                 Ordering::Equal
@@ -355,7 +355,7 @@ impl<'a, T> ProjectedQueryBuilder<'a, T> {
             .iter()
             .position(|op| matches!(op, ProjectedOperation::Limit(_)))
         {
-            self.operations.remove(pos);
+            let _ = self.operations.remove(pos);
         }
         self.operations.push(ProjectedOperation::Limit(n));
         self
@@ -368,7 +368,7 @@ impl<'a, T> ProjectedQueryBuilder<'a, T> {
             .iter()
             .position(|op| matches!(op, ProjectedOperation::Offset(_)))
         {
-            self.operations.remove(pos);
+            let _ = self.operations.remove(pos);
         }
         self.operations.push(ProjectedOperation::Offset(n));
         self
@@ -404,9 +404,9 @@ impl<'a, T> ProjectedQueryBuilder<'a, T> {
         if !sorts.is_empty() {
             items.sort_by(|a, b| {
                 for sort_fn in &sorts {
-                    match sort_fn(a, b) {
-                        Ordering::Equal => continue,
-                        non_eq => return non_eq,
+                    let ord = sort_fn(a, b);
+                    if ord != Ordering::Equal {
+                        return ord;
                     }
                 }
                 Ordering::Equal
