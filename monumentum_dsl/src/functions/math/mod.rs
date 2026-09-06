@@ -1,6 +1,4 @@
 use monumentum_handler::core::value::Value;
-use monumentum_handler::error::DbError;
-
 #[allow(clippy::cast_precision_loss)]
 pub(crate) fn value_to_f64(value: &Value) -> Option<f64> {
     match value {
@@ -11,7 +9,6 @@ pub(crate) fn value_to_f64(value: &Value) -> Option<f64> {
     }
 }
 
-// Macro ini didefinisikan sebelum submodul agar terlihat oleh semua submodul
 macro_rules! define_math_fn {
     ($struct_name:ident, $name:expr, $body:expr) => {
         #[derive(Debug, Clone, Copy)]
@@ -22,18 +19,24 @@ macro_rules! define_math_fn {
                 $name
             }
 
-            fn call(&self, args: &[Value]) -> Result<Value, DbError> {
+            fn call(
+                &self,
+                args: &[monumentum_handler::core::value::Value],
+            ) -> Result<monumentum_handler::core::value::Value, monumentum_handler::error::DbError>
+            {
                 let arg = args.first().ok_or_else(|| {
-                    DbError::invalid_operation("math function expects one argument")
+                    monumentum_handler::error::DbError::invalid_operation(
+                        "math function expects one argument",
+                    )
                 })?;
                 let Some(x) = crate::functions::math::value_to_f64(arg) else {
-                    return Ok(Value::Null);
+                    return Ok(monumentum_handler::core::value::Value::Null);
                 };
                 let result = $body(x);
                 if result.is_finite() {
-                    Value::try_from(result)
+                    monumentum_handler::core::value::Value::try_from(result)
                 } else {
-                    Ok(Value::Null)
+                    Ok(monumentum_handler::core::value::Value::Null)
                 }
             }
         }

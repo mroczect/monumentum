@@ -1,10 +1,12 @@
 #![allow(clippy::all)]
-
+extern crate alloc;
+use alloc::boxed::Box;
 use monumentum_core as _;
 use monumentum_dsl::{FunctionRegistry, ScalarFunction};
 use monumentum_handler::core::value::Value;
 use monumentum_handler::error::DbError;
 use tempfile as _;
+
 mod functions;
 
 #[test]
@@ -35,7 +37,7 @@ fn test_registry_custom_scalar() -> Result<(), DbError> {
     }
 
     let mut registry = FunctionRegistry::new();
-    registry.register_scalar(Box::new(CustomFunction));
+    let _ = registry.register_scalar(Box::new(CustomFunction));
     let f = registry
         .get_scalar("custom")
         .ok_or_else(|| DbError::unsupported("missing custom function"))?;
