@@ -13,6 +13,9 @@ pub use datetime::*;
 pub mod window;
 pub use window::*;
 
+pub mod extras;
+pub use extras::*;
+
 #[allow(clippy::redundant_pub_crate)]
 pub(crate) mod aggregate;
 mod registry;
@@ -20,19 +23,11 @@ mod registry;
 pub(crate) mod scalar;
 
 pub mod math;
+pub use aggregate::{
+    avg::AvgFunction, count::CountFunction, max::MaxFunction, min::MinFunction, sum::SumFunction,
+};
 pub use math::*;
 
-pub use aggregate::{
-    avg::AvgFunction,
-    count::CountFunction,
-    extras::{
-        GroupConcatFunction, MedianFunction, PercentileContFunction, PercentileDiscFunction,
-        StringAggFunction, TotalFunction,
-    },
-    max::MaxFunction,
-    min::MinFunction,
-    sum::SumFunction,
-};
 pub use registry::FunctionRegistry;
 
 pub use scalar::{
