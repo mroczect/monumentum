@@ -25,11 +25,7 @@ pub mod math;
 pub use math::*;
 
 pub use aggregate::{
-    avg::AvgFunction,
-    count::CountFunction,
-    max::MaxFunction,
-    min::MinFunction,
-    sum::SumFunction,
+    avg::AvgFunction, count::CountFunction, max::MaxFunction, min::MinFunction, sum::SumFunction,
 };
 
 pub use registry::FunctionRegistry;
