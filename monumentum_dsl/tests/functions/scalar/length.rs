@@ -1,10 +1,9 @@
-#![allow(clippy::all)]
 use monumentum_dsl::LengthFunction;
+use monumentum_dsl::ScalarFunction;
+use monumentum_handler::MonumentumError;
 use monumentum_handler::core::value::Value;
 use monumentum_handler::error::DbError;
 
-use monumentum_dsl::ScalarFunction;
-use monumentum_handler::MonumentumError;
 #[test]
 fn test_length_text() -> Result<(), DbError> {
     let f = LengthFunction;
@@ -23,7 +22,7 @@ fn test_length_blob() -> Result<(), DbError> {
 }
 
 #[test]
-fn test_length_missing_arg() -> Result<(), DbError> {
+fn test_length_missing_arg() {
     let f = LengthFunction;
     let result = f.call(&[]);
     assert!(result.is_err());
@@ -33,16 +32,14 @@ fn test_length_missing_arg() -> Result<(), DbError> {
             monumentum_handler::error::ErrorKind::InvalidOperation
         );
     }
-    Ok(())
 }
 
 #[test]
-fn test_length_wrong_type() -> Result<(), DbError> {
+fn test_length_wrong_type() {
     let f = LengthFunction;
     let result = f.call(&[Value::from(true)]);
     assert!(result.is_err());
     if let Err(e) = result {
         assert_eq!(e.kind(), monumentum_handler::error::ErrorKind::TypeMismatch);
     }
-    Ok(())
 }
