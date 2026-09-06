@@ -8,12 +8,19 @@ use std::sync::OnceLock;
 use crate::functions::{
     AggregateFunction, ScalarFunction,
     aggregate::{
-        avg::AvgFunction, count::CountFunction, max::MaxFunction, min::MinFunction,
+        avg::AvgFunction,
+        count::CountFunction,
+        max::MaxFunction,
+        min::MinFunction,
         sum::SumFunction,
     },
     extras::{
         GroupConcatFunction, MedianFunction, PercentileContFunction, PercentileDiscFunction,
         StringAggFunction, TotalFunction,
+    },
+    datetime::{
+        DateFunction, DatetimeFunction, JuliandayFunction, StrftimeFunction, TimeFunction,
+        TimediffFunction, UnixepochFunction,
     },
     math::{
         AcosFunction, AcoshFunction, AsinFunction, AsinhFunction, Atan2Function, AtanFunction,
@@ -44,6 +51,7 @@ impl FunctionRegistry {
         let _ = registry.register_scalar(Box::new(LowerFunction));
         let _ = registry.register_scalar(Box::new(LengthFunction));
         let _ = registry.register_scalar(Box::new(ConcatFunction));
+
         let _ = registry.register_scalar(Box::new(AcosFunction));
         let _ = registry.register_scalar(Box::new(AcoshFunction));
         let _ = registry.register_scalar(Box::new(AsinFunction));
@@ -74,11 +82,20 @@ impl FunctionRegistry {
         let _ = registry.register_scalar(Box::new(TanhFunction));
         let _ = registry.register_scalar(Box::new(TruncFunction));
 
+        let _ = registry.register_scalar(Box::new(DateFunction));
+        let _ = registry.register_scalar(Box::new(TimeFunction));
+        let _ = registry.register_scalar(Box::new(DatetimeFunction));
+        let _ = registry.register_scalar(Box::new(JuliandayFunction));
+        let _ = registry.register_scalar(Box::new(UnixepochFunction));
+        let _ = registry.register_scalar(Box::new(StrftimeFunction));
+        let _ = registry.register_scalar(Box::new(TimediffFunction));
+
         let _ = registry.register_aggregate(Box::new(CountFunction));
         let _ = registry.register_aggregate(Box::new(SumFunction));
         let _ = registry.register_aggregate(Box::new(AvgFunction));
         let _ = registry.register_aggregate(Box::new(MinFunction));
         let _ = registry.register_aggregate(Box::new(MaxFunction));
+
         let _ = registry.register_aggregate(Box::new(GroupConcatFunction::default()));
         let _ = registry.register_aggregate(Box::new(StringAggFunction::default()));
         let _ = registry.register_aggregate(Box::new(TotalFunction));
