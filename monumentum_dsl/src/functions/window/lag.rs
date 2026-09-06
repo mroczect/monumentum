@@ -55,7 +55,6 @@ impl WindowFunction for LagFunction {
             };
         }
 
-        // Since we don't have expression evaluation per row, return first arg
         args.first()
             .cloned()
             .ok_or_else(|| DbError::invalid_operation("lag first argument missing"))
