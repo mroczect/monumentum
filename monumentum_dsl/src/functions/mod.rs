@@ -26,20 +26,12 @@ pub use aggregate::{
     sum::SumFunction,
 };
 pub use registry::FunctionRegistry;
-pub use scalar::{
-    concat::ConcatFunction,
-    length::LengthFunction,
-    lower::LowerFunction,
-    math::{
-        AcosFunction, AcoshFunction, AsinFunction, AsinhFunction, Atan2Function, AtanFunction,
-        AtanhFunction, CeilFunction, CeilingFunction, CosFunction, CoshFunction, DegreesFunction,
-        ExpFunction, FloorFunction, LnFunction, Log2Function, Log10Function, LogFunction,
-        ModFunction, PiFunction, PowFunction, PowerFunction, RadiansFunction, SinFunction,
-        SinhFunction, SqrtFunction, TanFunction, TanhFunction, TruncFunction,
-    },
-    upper::UpperFunction,
-};
+pub mod math;
+pub use math::*;
 
+pub use scalar::{
+    concat::ConcatFunction, length::LengthFunction, lower::LowerFunction, upper::UpperFunction,
+};
 pub trait ScalarFunction: Send + Sync {
     fn name(&self) -> &'static str;
     fn call(&self, args: &[Value]) -> Result<Value, DbError>;
