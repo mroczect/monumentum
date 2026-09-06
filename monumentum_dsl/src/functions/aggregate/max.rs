@@ -29,6 +29,10 @@ struct MinMaxAccumulator {
 
 impl Accumulator for MinMaxAccumulator {
     fn update(&mut self, value: &Value) -> Result<(), DbError> {
+        if matches!(value, Value::Null) {
+            return Ok(());
+        }
+
         let should_replace = match &self.best {
             None => true,
             Some(best) => {
