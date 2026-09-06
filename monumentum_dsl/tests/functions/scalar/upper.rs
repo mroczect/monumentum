@@ -1,4 +1,3 @@
-#![allow(clippy::all)]
 use monumentum_dsl::ScalarFunction;
 use monumentum_dsl::UpperFunction;
 use monumentum_handler::MonumentumError;
@@ -14,7 +13,7 @@ fn test_upper_valid_text() -> Result<(), DbError> {
 }
 
 #[test]
-fn test_upper_missing_arg() -> Result<(), DbError> {
+fn test_upper_missing_arg() {
     let f = UpperFunction;
     let result = f.call(&[]);
     assert!(result.is_err());
@@ -24,16 +23,14 @@ fn test_upper_missing_arg() -> Result<(), DbError> {
             monumentum_handler::error::ErrorKind::InvalidOperation
         );
     }
-    Ok(())
 }
 
 #[test]
-fn test_upper_wrong_type() -> Result<(), DbError> {
+fn test_upper_wrong_type() {
     let f = UpperFunction;
     let result = f.call(&[Value::from(1_i64)]);
     assert!(result.is_err());
     if let Err(e) = result {
         assert_eq!(e.kind(), monumentum_handler::error::ErrorKind::TypeMismatch);
     }
-    Ok(())
 }
