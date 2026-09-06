@@ -1,5 +1,3 @@
-#![allow(clippy::all)]
-
 use monumentum_dsl::{AggregateFunction, AvgFunction};
 use monumentum_handler::MonumentumError;
 use monumentum_handler::core::value::Value;
@@ -31,7 +29,7 @@ fn test_avg_no_values() -> Result<(), DbError> {
 }
 
 #[test]
-fn test_avg_wrong_type() -> Result<(), DbError> {
+fn test_avg_wrong_type() {
     let f = AvgFunction;
     let mut acc = f.init();
     let result = acc.update(&Value::from(true));
@@ -39,5 +37,4 @@ fn test_avg_wrong_type() -> Result<(), DbError> {
     if let Err(e) = result {
         assert_eq!(e.kind(), monumentum_handler::error::ErrorKind::TypeMismatch);
     }
-    Ok(())
 }
