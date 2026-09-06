@@ -1,4 +1,3 @@
-
 #![allow(clippy::all)]
 use alloc::boxed::Box;
 use monumentum_handler::core::value::Value;

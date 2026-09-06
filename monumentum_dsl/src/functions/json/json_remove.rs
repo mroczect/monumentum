@@ -3,7 +3,7 @@ use monumentum_handler::core::value::Value;
 use monumentum_handler::error::DbError;
 
 use crate::functions::ScalarFunction;
-use crate::functions::json::{parse_json, JsonValue};
+use crate::functions::json::{JsonValue, parse_json};
 
 #[derive(Debug, Clone, Copy)]
 pub struct JsonRemoveFunction;
