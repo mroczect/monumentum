@@ -33,6 +33,14 @@ impl Accumulator for MinMaxAccumulator {
             return Ok(());
         }
 
+        if let Some(best) = &self.best
+            && core::mem::discriminant(best) != core::mem::discriminant(value)
+        {
+            return Err(DbError::type_mismatch(
+                "cannot compare values of different types for min/max",
+            ));
+        }
+
         let should_replace = match &self.best {
             None => true,
             Some(best) => {
