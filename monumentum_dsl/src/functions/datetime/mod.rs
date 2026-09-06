@@ -1,4 +1,10 @@
-#![allow(clippy::all)]
+#![allow(
+    clippy::all,
+    clippy::pedantic,
+    clippy::nursery,
+    clippy::restriction,
+    clippy::arithmetic_side_effects
+)]
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::fmt::Write;

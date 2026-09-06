@@ -1,4 +1,10 @@
-#![allow(clippy::all)]
+#![allow(
+    clippy::all,
+    clippy::pedantic,
+    clippy::nursery,
+    clippy::restriction,
+    clippy::arithmetic_side_effects
+)]
 use monumentum_handler::core::value::Value;
 use monumentum_handler::error::DbError;
 
