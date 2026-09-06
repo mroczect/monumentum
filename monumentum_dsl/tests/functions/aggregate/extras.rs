@@ -1,4 +1,3 @@
-#![allow(clippy::all)]
 use monumentum_dsl::{
     AggregateFunction, GroupConcatFunction, MedianFunction, PercentileContFunction,
     PercentileDiscFunction, StringAggFunction, TotalFunction,
@@ -6,6 +5,7 @@ use monumentum_dsl::{
 use monumentum_handler::MonumentumError;
 use monumentum_handler::core::value::Value;
 use monumentum_handler::error::DbError;
+
 #[test]
 fn test_group_concat_basic() -> Result<(), DbError> {
     let f = GroupConcatFunction::new(",");
@@ -30,7 +30,7 @@ fn test_group_concat_custom_separator() -> Result<(), DbError> {
 }
 
 #[test]
-fn test_group_concat_wrong_type() -> Result<(), DbError> {
+fn test_group_concat_wrong_type() {
     let f = GroupConcatFunction::new(",");
     let mut acc = f.init();
     let result = acc.update(&Value::from(42_i64));
@@ -38,7 +38,6 @@ fn test_group_concat_wrong_type() -> Result<(), DbError> {
     if let Err(e) = result {
         assert_eq!(e.kind(), monumentum_handler::error::ErrorKind::TypeMismatch);
     }
-    Ok(())
 }
 
 #[test]
@@ -146,7 +145,7 @@ fn test_percentile_cont_basic() -> Result<(), DbError> {
     let f = PercentileContFunction::new(0.5);
     let mut acc = f.init();
     for i in 1..=5 {
-        acc.update(&Value::try_from(i as f64)?)?;
+        acc.update(&Value::try_from(f64::from(i))?)?;
     }
     let result = acc.finish()?;
     if let Value::Float(p) = result {
@@ -162,7 +161,7 @@ fn test_percentile_disc_basic() -> Result<(), DbError> {
     let f = PercentileDiscFunction::new(0.5);
     let mut acc = f.init();
     for i in 1..=5 {
-        acc.update(&Value::try_from(i as f64)?)?;
+        acc.update(&Value::try_from(f64::from(i))?)?;
     }
     let result = acc.finish()?;
     if let Value::Float(p) = result {
