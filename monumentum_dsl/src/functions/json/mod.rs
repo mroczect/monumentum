@@ -1,3 +1,4 @@
+#[allow(clippy::module_inception)]
 pub mod json;
 pub mod json_array;
 pub mod json_array_insert;
