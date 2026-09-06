@@ -3,7 +3,6 @@ use alloc::boxed::Box;
 use monumentum_handler::core::value::Value;
 use monumentum_handler::error::DbError;
 
-// ============ Submodules ============
 pub mod json;
 pub use json::*;
 
@@ -23,10 +22,15 @@ mod registry;
 pub(crate) mod scalar;
 
 pub mod math;
-pub use aggregate::{
-    avg::AvgFunction, count::CountFunction, max::MaxFunction, min::MinFunction, sum::SumFunction,
-};
 pub use math::*;
+
+pub use aggregate::{
+    avg::AvgFunction,
+    count::CountFunction,
+    max::MaxFunction,
+    min::MinFunction,
+    sum::SumFunction,
+};
 
 pub use registry::FunctionRegistry;
 
