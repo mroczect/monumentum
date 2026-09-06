@@ -6,7 +6,7 @@ use core::fmt;
 use std::sync::OnceLock;
 
 use crate::functions::{
-    AggregateFunction, ScalarFunction,
+    AggregateFunction, ScalarFunction, WindowFunction,
     aggregate::{
         avg::AvgFunction, count::CountFunction, max::MaxFunction, min::MinFunction,
         sum::SumFunction,
@@ -29,6 +29,11 @@ use crate::functions::{
     scalar::{
         concat::ConcatFunction, length::LengthFunction, lower::LowerFunction, upper::UpperFunction,
     },
+    window::{
+        CumeDistFunction, DenseRankFunction, FirstValueFunction, LagFunction, LastValueFunction,
+        LeadFunction, NthValueFunction, NtileFunction, PercentRankFunction, RankFunction,
+        RowNumberFunction,
+    },
 };
 
 static DEFAULT_REGISTRY: OnceLock<FunctionRegistry> = OnceLock::new();
@@ -37,6 +42,7 @@ static DEFAULT_REGISTRY: OnceLock<FunctionRegistry> = OnceLock::new();
 pub struct FunctionRegistry {
     scalars: BTreeMap<String, Box<dyn ScalarFunction>>,
     aggregates: BTreeMap<String, Box<dyn AggregateFunction>>,
+    windows: BTreeMap<String, Box<dyn WindowFunction>>,
 }
 
 impl FunctionRegistry {
@@ -100,6 +106,18 @@ impl FunctionRegistry {
         let _ = registry.register_aggregate(Box::new(PercentileContFunction::new(0.5)));
         let _ = registry.register_aggregate(Box::new(PercentileDiscFunction::new(0.5)));
 
+        let _ = registry.register_window(Box::new(RowNumberFunction));
+        let _ = registry.register_window(Box::new(RankFunction));
+        let _ = registry.register_window(Box::new(DenseRankFunction));
+        let _ = registry.register_window(Box::new(PercentRankFunction));
+        let _ = registry.register_window(Box::new(CumeDistFunction));
+        let _ = registry.register_window(Box::new(NtileFunction));
+        let _ = registry.register_window(Box::new(LagFunction));
+        let _ = registry.register_window(Box::new(LeadFunction));
+        let _ = registry.register_window(Box::new(FirstValueFunction));
+        let _ = registry.register_window(Box::new(LastValueFunction));
+        let _ = registry.register_window(Box::new(NthValueFunction));
+
         registry
     }
 
@@ -122,6 +140,13 @@ impl FunctionRegistry {
         self.aggregates.insert(f.name().to_string(), f)
     }
 
+    pub fn register_window(
+        &mut self,
+        f: Box<dyn WindowFunction>,
+    ) -> Option<Box<dyn WindowFunction>> {
+        self.windows.insert(f.name().to_string(), f)
+    }
+
     #[must_use]
     pub fn get_scalar(&self, name: &str) -> Option<&dyn ScalarFunction> {
         self.scalars.get(name).map(Box::as_ref)
@@ -131,6 +156,11 @@ impl FunctionRegistry {
     pub fn get_aggregate(&self, name: &str) -> Option<&dyn AggregateFunction> {
         self.aggregates.get(name).map(Box::as_ref)
     }
+
+    #[must_use]
+    pub fn get_window(&self, name: &str) -> Option<&dyn WindowFunction> {
+        self.windows.get(name).map(Box::as_ref)
+    }
 }
 
 impl fmt::Debug for FunctionRegistry {
@@ -138,6 +168,7 @@ impl fmt::Debug for FunctionRegistry {
         f.debug_struct("FunctionRegistry")
             .field("scalars", &self.scalars.keys().collect::<Vec<_>>())
             .field("aggregates", &self.aggregates.keys().collect::<Vec<_>>())
+            .field("windows", &self.windows.keys().collect::<Vec<_>>())
             .finish()
     }
 }
