@@ -8,15 +8,12 @@ use std::sync::OnceLock;
 use crate::functions::{
     AggregateFunction, ScalarFunction,
     aggregate::{
-        avg::AvgFunction,
-        count::CountFunction,
-        extras::{
-            GroupConcatFunction, MedianFunction, PercentileContFunction, PercentileDiscFunction,
-            StringAggFunction, TotalFunction,
-        },
-        max::MaxFunction,
-        min::MinFunction,
+        avg::AvgFunction, count::CountFunction, max::MaxFunction, min::MinFunction,
         sum::SumFunction,
+    },
+    extras::{
+        GroupConcatFunction, MedianFunction, PercentileContFunction, PercentileDiscFunction,
+        StringAggFunction, TotalFunction,
     },
     math::{
         AcosFunction, AcoshFunction, AsinFunction, AsinhFunction, Atan2Function, AtanFunction,
