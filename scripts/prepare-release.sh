@@ -4,13 +4,11 @@ set -euo pipefail
 readonly RELEASE_JSON="release.json"
 readonly LOG_FILE="release_$(date +%Y%m%d_%H%M%S).log"
 
-# Warna
 readonly RED='\033[0;31m'
 readonly GREEN='\033[0;32m'
 readonly YELLOW='\033[0;33m'
 readonly NC='\033[0m'
 
-# Urutan publish: dependency-first
 readonly CRATE_ORDER=(
     "monumentum_handler"
     "monumentum_core"
@@ -162,13 +160,10 @@ main() {
     check_prerequisites
     ensure_clean_workspace
 
-    # 1. Generate release.json
     generate_release_json
 
-    # 2. Buat PR
     create_release_pr
 
-    # 3. Konfirmasi push tags
     read -r -p "Do you want to push release tags now? (y/n) " confirm
     if [ "$confirm" = "y" ] || [ "$confirm" = "Y" ]; then
         push_tags
@@ -177,7 +172,6 @@ main() {
     fi
 }
 
-# Mode push tags saja
 if [ "${1:-}" = "--push-tags" ]; then
     check_prerequisites
     push_tags
