@@ -2,8 +2,8 @@ SHELL = /bin/bash
 .SHELLFLAGS = -euo pipefail -c
 
 CARGO          = cargo
-MEMBERS        = monumentum_handler monumentum_core
-PUBLISH_ORDER  = monumentum_handler monumentum_core
+MEMBERS        = monumentum_handler monumentum_core monumentum_dsl
+PUBLISH_ORDER  = monumentum_handler monumentum_core monumentum_dsl
 
 PKG           ?= monumentum_handler
 
@@ -158,11 +158,11 @@ snap:
 	@for crate in $(MEMBERS); do \
 		if [ -d "$$crate" ]; then \
 			echo "Snapping $$crate/src"; \
-			snapcat "$$crate/src" -f markdown -o "dev/$$crate.src.snapcat.md" || true; \
+			snapcat "$$crate/src" --format markdown > "dev/$$crate.src.snapcat.md" || true; \
 		fi; \
 		if [ -d "$$crate/tests" ]; then \
 			echo "Snapping $$crate/tests"; \
-			snapcat "$$crate/tests" -f markdown -o "dev/$$crate.tests.snapcat.md" || true; \
+			snapcat "$$crate/tests" --format markdown > "dev/$$crate.tests.snapcat.md" || true; \
 		fi; \
 	done
 	@echo "Merging all snapshots into dev/root.md"
@@ -238,7 +238,6 @@ watch-test-pkg:
 watch-build-pkg:
 	$(CARGO) watch -x 'check -p $(PKG)'
 
-# Shortcut targets
 .PHONY: handler
 handler: PKG=monumentum_handler
 handler: ci-pkg
